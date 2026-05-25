@@ -1,0 +1,164 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --cream-50: #FDFAF5;
+  --cream-100: #F7F2E8;
+  --cream-200: #EDE5D4;
+  --cream-300: #DDD3BC;
+  --cream-400: #C9BC9E;
+  --ink-900: #1A1612;
+  --ink-700: #3D3529;
+  --ink-500: #6B5E4A;
+  --ink-300: #A89880;
+  --amber-accent: #C8873A;
+  --amber-light: #F5E6D0;
+  --red-soft: #C0593A;
+  --green-soft: #4A7C59;
+}
+
+html, body {
+  background-color: var(--cream-50);
+  color: var(--ink-900);
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+  transition-timing-function: ease;
+  transition-duration: 150ms;
+}
+
+/* Tiptap prose styling */
+.ProseMirror {
+  outline: none;
+  font-family: var(--font-lora), Georgia, serif;
+  font-size: 16px;
+  line-height: 1.9;
+  color: var(--ink-900);
+  caret-color: var(--amber-accent);
+  min-height: 60vh;
+}
+
+.ProseMirror p {
+  margin: 0 0 1em 0;
+}
+
+.ProseMirror h1 {
+  font-family: var(--font-lora), Georgia, serif;
+  font-weight: 600;
+  font-size: 2.25rem;
+  line-height: 1.3;
+  margin: 1.6em 0 0.6em 0;
+  color: var(--ink-900);
+}
+
+.ProseMirror h2 {
+  font-family: var(--font-lora), Georgia, serif;
+  font-weight: 600;
+  font-size: 1.6rem;
+  line-height: 1.35;
+  margin: 1.4em 0 0.5em 0;
+  color: var(--ink-900);
+}
+
+.ProseMirror h3 {
+  font-family: var(--font-lora), Georgia, serif;
+  font-weight: 600;
+  font-size: 1.25rem;
+  line-height: 1.4;
+  margin: 1.2em 0 0.4em 0;
+  color: var(--ink-900);
+}
+
+.ProseMirror ul, .ProseMirror ol {
+  padding-left: 1.5em;
+  margin: 0.5em 0 1em 0;
+}
+
+.ProseMirror ul { list-style: disc; }
+.ProseMirror ol { list-style: decimal; }
+
+.ProseMirror li { margin: 0.25em 0; }
+.ProseMirror li > p { margin: 0; }
+
+.ProseMirror blockquote {
+  border-left: 3px solid var(--cream-300);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--ink-700);
+  font-style: italic;
+}
+
+.ProseMirror strong { font-weight: 700; }
+.ProseMirror em { font-style: italic; }
+.ProseMirror u { text-decoration: underline; }
+
+.ProseMirror code {
+  background: var(--cream-200);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+  font-family: var(--font-dm-mono), monospace;
+  font-size: 0.9em;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--ink-300);
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}
+
+/* Grammar error mark */
+.ProseMirror .grammar-error {
+  text-decoration: underline wavy var(--red-soft);
+  text-underline-offset: 3px;
+}
+
+/* AI-inserted highlight */
+.ProseMirror .ai-insert {
+  border-left: 3px solid var(--amber-accent);
+  padding-left: 0.5em;
+  margin-left: -0.5em;
+  animation: fadeBorder 3s ease-out forwards;
+}
+
+/* Accepted suggestion flash */
+.ProseMirror .ai-accepted {
+  background-color: rgba(74, 124, 89, 0.18);
+  transition: background-color 1.2s ease-out;
+}
+
+/* Selection */
+.ProseMirror ::selection {
+  background-color: rgba(200, 135, 58, 0.22);
+}
+
+/* Shimmer for loading */
+.shimmer-row {
+  background: linear-gradient(
+    90deg,
+    var(--amber-light) 0%,
+    rgba(245, 230, 208, 0.4) 50%,
+    var(--amber-light) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+  border-radius: 4px;
+  height: 0.85rem;
+}
+
+/* Scrollbar tweaks */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--cream-300);
+  border-radius: 5px;
+  border: 2px solid var(--cream-50);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--cream-400); }
