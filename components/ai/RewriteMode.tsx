@@ -55,7 +55,7 @@ export function RewriteMode({ editor, selectedText, onToast }: RewriteModeProps)
 
   if (!selectedText) {
     return (
-      <div className="p-4 text-sm text-ink-500 font-serif italic">
+      <div className="p-4 text-sm text-neutral-500">
         Select some text in your document first.
       </div>
     );
@@ -68,30 +68,30 @@ export function RewriteMode({ editor, selectedText, onToast }: RewriteModeProps)
         onChange={(e) => setInstruction(e.target.value)}
         rows={3}
         placeholder="e.g. Make this more concise / more literary / less formal"
-        className="w-full bg-cream-100 border border-cream-300 rounded p-3 text-[14px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-amber-accent resize-none"
+        className="w-full bg-white border border-neutral-300 rounded p-3 text-[14px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300 resize-none"
       />
 
       <button
         type="button"
         onClick={handleRun}
         disabled={isStreaming}
-        className="w-full bg-amber-accent text-white rounded px-4 py-2.5 font-medium text-sm hover:opacity-90 disabled:opacity-50"
+        className="w-full bg-blue-600 text-white rounded px-4 py-2.5 font-medium text-sm hover:bg-blue-700 disabled:opacity-50"
       >
         {isStreaming ? "Thinking…" : "Rewrite Selection →"}
       </button>
 
       {(response || isStreaming) && (
         <div className="grid grid-cols-1 gap-3 mt-2">
-          <div className="bg-cream-100 rounded p-3 border border-cream-300">
-            <div className="text-[10px] uppercase tracking-wider text-ink-500 mb-1">
+          <div className="bg-neutral-50 rounded p-3 border border-neutral-200">
+            <div className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1">
               Original
             </div>
-            <div className="font-serif text-[14px] text-ink-500 leading-relaxed whitespace-pre-wrap">
+            <div className="text-[14px] text-neutral-500 leading-relaxed whitespace-pre-wrap">
               {selectedText}
             </div>
           </div>
-          <div className="bg-cream-50 rounded p-3 border border-amber-accent/40">
-            <div className="text-[10px] uppercase tracking-wider text-amber-accent mb-1">
+          <div className="bg-blue-50/50 rounded p-3 border border-blue-300">
+            <div className="text-[10px] uppercase tracking-wider text-blue-700 mb-1">
               Rewrite
             </div>
             <StreamingResponse text={response} isStreaming={isStreaming} />
@@ -104,14 +104,14 @@ export function RewriteMode({ editor, selectedText, onToast }: RewriteModeProps)
           <button
             type="button"
             onClick={accept}
-            className="flex-1 bg-amber-accent text-white rounded px-4 py-2 text-sm font-medium hover:opacity-90"
+            className="flex-1 bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700"
           >
             Accept
           </button>
           <button
             type="button"
             onClick={handleRun}
-            className="px-3 py-2 text-sm text-ink-700 rounded border border-cream-300 hover:border-amber-accent"
+            className="px-3 py-2 text-sm text-neutral-700 rounded border border-neutral-300 hover:bg-neutral-100"
           >
             Try Again
           </button>

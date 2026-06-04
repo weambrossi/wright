@@ -54,15 +54,15 @@ export function BrainstormMode({ editor, onToast }: BrainstormModeProps) {
         onChange={(e) => setPrompt(e.target.value)}
         rows={4}
         placeholder="What are you trying to write about, or where are you stuck?"
-        className="w-full bg-cream-100 border border-cream-300 rounded p-3 text-[15px] font-serif text-ink-900 placeholder:text-ink-300 focus:outline-none focus:border-amber-accent resize-none"
+        className="w-full bg-white border border-neutral-300 rounded p-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300 resize-none"
       />
 
-      <label className="flex items-center gap-2 text-xs text-ink-700 cursor-pointer">
+      <label className="flex items-center gap-2 text-xs text-neutral-600 cursor-pointer">
         <input
           type="checkbox"
           checked={includeContext}
           onChange={(e) => setIncludeContext(e.target.checked)}
-          className="accent-amber-accent"
+          className="accent-blue-600"
         />
         Include surrounding paragraph
       </label>
@@ -71,7 +71,7 @@ export function BrainstormMode({ editor, onToast }: BrainstormModeProps) {
         type="button"
         onClick={handleRun}
         disabled={isStreaming}
-        className="w-full bg-amber-accent text-white rounded px-4 py-2.5 font-medium text-sm hover:opacity-90 disabled:opacity-50"
+        className="w-full bg-blue-600 text-white rounded px-4 py-2.5 font-medium text-sm hover:bg-blue-700 disabled:opacity-50"
       >
         {isStreaming ? "Thinking…" : "Brainstorm with Claude →"}
       </button>
@@ -88,7 +88,7 @@ export function BrainstormMode({ editor, onToast }: BrainstormModeProps) {
         <button
           type="button"
           onClick={insertAtCursor}
-          className="mt-2 w-full bg-cream-100 border border-cream-300 text-ink-700 rounded px-4 py-2 text-sm hover:border-amber-accent"
+          className="mt-2 w-full bg-white border border-neutral-300 text-neutral-700 rounded px-4 py-2 text-sm hover:bg-neutral-100"
         >
           Insert at cursor
         </button>

@@ -85,7 +85,7 @@ export function GrammarMode({ editor, onToast }: GrammarModeProps) {
         type="button"
         onClick={check}
         disabled={isStreaming}
-        className="w-full bg-amber-accent text-white rounded px-4 py-2.5 font-medium text-sm hover:opacity-90 disabled:opacity-50"
+        className="w-full bg-blue-600 text-white rounded px-4 py-2.5 font-medium text-sm hover:bg-blue-700 disabled:opacity-50"
       >
         {isStreaming ? "Thinking…" : "Check Grammar & Style"}
       </button>
@@ -108,7 +108,7 @@ export function GrammarMode({ editor, onToast }: GrammarModeProps) {
 
       {visibleIssues.length > 0 && (
         <>
-          <div className="text-sm text-ink-700 font-serif italic">
+          <div className="text-sm text-neutral-600">
             Found {visibleIssues.length} suggestion
             {visibleIssues.length === 1 ? "" : "s"} in your document.
           </div>
@@ -132,13 +132,13 @@ export function GrammarMode({ editor, onToast }: GrammarModeProps) {
 function EmptyAllClear() {
   return (
     <div className="flex flex-col items-center justify-center text-center py-8 gap-3">
-      <div className="w-10 h-10 rounded-full bg-green-soft/15 grid place-items-center">
+      <div className="w-10 h-10 rounded-full bg-green-50 grid place-items-center">
         <svg
           width="20"
           height="20"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#4A7C59"
+          stroke="#16a34a"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -146,7 +146,7 @@ function EmptyAllClear() {
           <polyline points="20 6 9 17 4 12" />
         </svg>
       </div>
-      <div className="font-serif italic text-ink-500 text-sm">
+      <div className="text-neutral-500 text-sm">
         Your writing looks great.
       </div>
     </div>

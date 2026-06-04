@@ -96,10 +96,10 @@ export function ContinueMode({ editor, onToast }: ContinueModeProps) {
             type="button"
             onClick={() => setFrom(opt)}
             className={[
-              "flex-1 text-xs rounded-full px-3 py-1.5 border",
+              "flex-1 text-xs rounded px-3 py-1.5 border",
               from === opt
-                ? "bg-amber-accent text-white border-amber-accent"
-                : "bg-cream-100 text-ink-700 border-cream-300 hover:border-amber-accent",
+                ? "bg-blue-600 text-white border-blue-600"
+                : "bg-white text-neutral-700 border-neutral-300 hover:border-blue-400",
             ].join(" ")}
           >
             {opt === "cursor" ? "Continue from cursor" : "Continue from end"}
@@ -108,13 +108,13 @@ export function ContinueMode({ editor, onToast }: ContinueModeProps) {
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className="text-[10px] uppercase tracking-wider text-ink-500">
+        <label className="text-[10px] uppercase tracking-wider text-neutral-500">
           Tone
         </label>
         <select
           value={tone}
           onChange={(e) => setTone(e.target.value as ContinueTone)}
-          className="bg-cream-100 border border-cream-300 rounded px-2 py-1.5 text-sm text-ink-700 focus:outline-none focus:border-amber-accent"
+          className="bg-white border border-neutral-300 rounded px-2 py-1.5 text-sm text-neutral-700 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-300"
         >
           {TONES.map((t) => (
             <option key={t} value={t}>
@@ -128,7 +128,7 @@ export function ContinueMode({ editor, onToast }: ContinueModeProps) {
         type="button"
         onClick={handleRun}
         disabled={isStreaming}
-        className="w-full bg-amber-accent text-white rounded px-4 py-2.5 font-medium text-sm hover:opacity-90 disabled:opacity-50"
+        className="w-full bg-blue-600 text-white rounded px-4 py-2.5 font-medium text-sm hover:bg-blue-700 disabled:opacity-50"
       >
         {isStreaming ? "Writing…" : "Continue Writing →"}
       </button>
@@ -144,7 +144,7 @@ export function ContinueMode({ editor, onToast }: ContinueModeProps) {
         <button
           type="button"
           onClick={undoInsert}
-          className="w-full bg-cream-100 border border-cream-300 text-ink-700 rounded px-4 py-2 text-sm hover:border-amber-accent"
+          className="w-full bg-white border border-neutral-300 text-neutral-700 rounded px-4 py-2 text-sm hover:bg-neutral-100"
         >
           Undo continuation
         </button>

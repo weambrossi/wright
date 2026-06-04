@@ -11,7 +11,7 @@ export function StreamingResponse({
   text,
   isStreaming,
   emptyHint,
-  fontClass = "font-serif",
+  fontClass = "",
 }: StreamingResponseProps) {
   if (!text && isStreaming) {
     return (
@@ -24,16 +24,16 @@ export function StreamingResponse({
   }
   if (!text) {
     return emptyHint ? (
-      <div className="text-sm text-ink-500 italic px-1">{emptyHint}</div>
+      <div className="text-sm text-neutral-500 px-1">{emptyHint}</div>
     ) : null;
   }
   return (
     <div
-      className={`${fontClass} text-ink-900 text-[15px] leading-relaxed whitespace-pre-wrap px-1`}
+      className={`${fontClass} text-neutral-800 text-[14px] leading-relaxed whitespace-pre-wrap px-1`}
     >
       {text}
       {isStreaming && (
-        <span className="inline-block w-[6px] h-[14px] bg-amber-accent align-middle ml-0.5 animate-breath" />
+        <span className="inline-block w-[6px] h-[14px] bg-blue-600 align-middle ml-0.5 animate-breath" />
       )}
     </div>
   );

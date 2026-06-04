@@ -7,7 +7,24 @@ import Underline from "@tiptap/extension-underline";
 import TextAlign from "@tiptap/extension-text-align";
 import CharacterCount from "@tiptap/extension-character-count";
 import Placeholder from "@tiptap/extension-placeholder";
+import TextStyle from "@tiptap/extension-text-style";
+import Color from "@tiptap/extension-color";
+import Highlight from "@tiptap/extension-highlight";
+import FontFamily from "@tiptap/extension-font-family";
+import Link from "@tiptap/extension-link";
+import Image from "@tiptap/extension-image";
+import Table from "@tiptap/extension-table";
+import TableRow from "@tiptap/extension-table-row";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
 import { useEffect, useState } from "react";
+import { FontSize } from "@/lib/tiptap/fontSize";
+import { BlockStyle } from "@/lib/tiptap/blockStyle";
+import { PageBreak } from "@/lib/tiptap/pageBreak";
+import {
+  DEFAULT_PAGE_SETTINGS,
+  type PageSettings,
+} from "@/lib/pageSettings";
 
 const STORAGE_KEY = "wright:document-html";
 const TITLE_KEY = "wright:document-title";
@@ -23,19 +40,35 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
   const [selectedText, setSelectedText] = useState("");
   const [wordCount, setWordCount] = useState(0);
   const [title, setTitle] = useState(initialTitle ?? "Untitled Document");
+  const [pageSettings, setPageSettings] =
+    useState<PageSettings>(DEFAULT_PAGE_SETTINGS);
+  // Bumped on every transaction so toolbar active-states stay in sync.
+  const [, setSelectionTick] = useState(0);
 
   const editor = useTiptap({
     extensions: [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] },
+        heading: { levels: [1, 2, 3, 4, 5] },
       }),
       Typography,
       Underline,
+      TextStyle,
+      Color,
+      FontFamily,
+      FontSize,
+      BlockStyle,
+      PageBreak,
+      Highlight.configure({ multicolor: true }),
+      Link.configure({ openOnClick: false, autolink: true }),
+      Image.configure({ inline: false, allowBase64: true }),
+      Table.configure({ resizable: true }),
+      TableRow,
+      TableHeader,
+      TableCell,
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       CharacterCount,
       Placeholder.configure({
-        placeholder:
-          "Begin writing, or upload a document to get started...",
+        placeholder: "Begin writing, or upload a document to get started...",
       }),
     ],
     content: initialContent,
@@ -49,6 +82,11 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
       const { from, to } = editor.state.selection;
       const text = editor.state.doc.textBetween(from, to, " ").trim();
       setSelectedText(text);
+      setSelectionTick((n) => n + 1);
+    },
+    onTransaction() {
+      // Keep toolbar dropdowns/active states reflecting the cursor position.
+      setSelectionTick((n) => n + 1);
     },
     onUpdate({ editor }) {
       const words = editor.storage.characterCount?.words?.() ?? 0;
@@ -93,6 +131,8 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
     wordCount,
     title,
     setTitle,
+    pageSettings,
+    setPageSettings,
   };
 }
 
