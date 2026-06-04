@@ -38,7 +38,7 @@ export function AISidebar({
     <div className="h-full flex flex-col bg-cream-200 border-l border-cream-300">
       <header className="flex items-center justify-between px-4 pt-4 pb-2">
         <div className="text-[11px] tracking-[0.18em] uppercase text-ink-500 font-medium">
-          PageMind AI
+          Wright AI
         </div>
         <div
           className={`w-2 h-2 rounded-full bg-amber-accent ${

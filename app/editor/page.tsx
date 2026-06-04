@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { usePageMindEditor, STORAGE_KEYS } from "@/hooks/useEditor";
+import { useWrightEditor, STORAGE_KEYS } from "@/hooks/useEditor";
 import { useDocumentImport } from "@/hooks/useDocumentImport";
 import { LeftPanel } from "@/components/editor/LeftPanel";
 import { Toolbar } from "@/components/editor/Toolbar";
@@ -9,8 +9,8 @@ import { EditorCanvas } from "@/components/editor/EditorCanvas";
 import { AISidebar } from "@/components/ai/AISidebar";
 import { ToastHost, useToasts } from "@/components/ui/Toast";
 
-const PENDING_HTML_KEY = "pagemind:pending-html";
-const PENDING_FILENAME_KEY = "pagemind:pending-filename";
+const PENDING_HTML_KEY = "wright:pending-html";
+const PENDING_FILENAME_KEY = "wright:pending-filename";
 
 export default function EditorPage() {
   const [initialContent, setInitialContent] = useState<string | undefined>(
@@ -45,7 +45,7 @@ export default function EditorPage() {
   }, [bootstrapped, push]);
 
   const { editor, selectedText, wordCount, title, setTitle } =
-    usePageMindEditor({
+    useWrightEditor({
       initialContent,
       initialTitle,
     });
@@ -135,11 +135,8 @@ export default function EditorPage() {
   return (
     <div className="h-screen w-screen flex bg-cream-50 overflow-hidden">
       <LeftPanel
-        editor={editor}
         wordCount={wordCount}
         title={title}
-        onExport={handleExport}
-        onImportClick={handleImportClick}
       />
 
       <input
@@ -154,6 +151,9 @@ export default function EditorPage() {
         <Toolbar
           editor={editor}
           hasSelection={selectedText.length > 0}
+          wordCount={wordCount}
+          onExport={handleExport}
+          onImportClick={handleImportClick}
           onOpenAI={() => setSidebarOpenMobile(true)}
         />
         <EditorCanvas

@@ -9,8 +9,8 @@ import CharacterCount from "@tiptap/extension-character-count";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useEffect, useState } from "react";
 
-const STORAGE_KEY = "pagemind:document-html";
-const TITLE_KEY = "pagemind:document-title";
+const STORAGE_KEY = "wright:document-html";
+const TITLE_KEY = "wright:document-title";
 
 export interface UseEditorOptions {
   initialContent?: string;
@@ -18,7 +18,7 @@ export interface UseEditorOptions {
   autosaveMs?: number;
 }
 
-export function usePageMindEditor(opts: UseEditorOptions = {}) {
+export function useWrightEditor(opts: UseEditorOptions = {}) {
   const { initialContent = "", initialTitle, autosaveMs = 30_000 } = opts;
   const [selectedText, setSelectedText] = useState("");
   const [wordCount, setWordCount] = useState(0);
@@ -41,7 +41,7 @@ export function usePageMindEditor(opts: UseEditorOptions = {}) {
     content: initialContent,
     editorProps: {
       attributes: {
-        class: "pagemind-prose",
+        class: "wright-prose",
       },
     },
     immediatelyRender: false,

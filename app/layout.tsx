@@ -22,7 +22,7 @@ const dmMono = DM_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PageMind — Your book, with an AI collaborator",
+  title: "Wright — Your book, with an AI collaborator",
   description: "A warm, elegant AI writing editor for authors.",
 };
 

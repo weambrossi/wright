@@ -3,8 +3,8 @@
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const PENDING_HTML_KEY = "pagemind:pending-html";
-const PENDING_FILENAME_KEY = "pagemind:pending-filename";
+const PENDING_HTML_KEY = "wright:pending-html";
+const PENDING_FILENAME_KEY = "wright:pending-filename";
 
 export default function LandingPage() {
   const router = useRouter();
@@ -62,7 +62,7 @@ export default function LandingPage() {
     <main className="min-h-screen w-full bg-cream-50 flex flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-xl flex flex-col items-center text-center">
         <div className="font-serif italic text-5xl text-ink-900 tracking-tight">
-          PageMind
+          Wright
         </div>
         <div className="mt-4 text-ink-500 text-base">
           Your book, with an AI collaborator.
