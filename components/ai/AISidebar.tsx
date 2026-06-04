@@ -35,20 +35,20 @@ export function AISidebar({
   const [mode, setMode] = useState<AIMode>(initialMode);
 
   return (
-    <div className="h-full flex flex-col bg-cream-200 border-l border-cream-300">
-      <header className="flex items-center justify-between px-4 pt-4 pb-2">
-        <div className="text-[11px] tracking-[0.18em] uppercase text-ink-500 font-medium">
-          PageMind AI
+    <div className="h-full flex flex-col bg-neutral-50 border-l border-neutral-300">
+      <header className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 pt-4 pb-3">
+        <div className="text-[11px] tracking-[0.18em] uppercase text-neutral-500 font-medium">
+          Wright AI
         </div>
         <div
-          className={`w-2 h-2 rounded-full bg-amber-accent ${
+          className={`w-2 h-2 rounded-full bg-blue-600 ${
             thinking ? "animate-breath" : "opacity-30"
           }`}
           aria-label={thinking ? "Thinking" : "Idle"}
         />
       </header>
 
-      <div className="px-3 grid grid-cols-2 gap-2 py-2">
+      <div className="px-3 grid grid-cols-2 gap-2 py-3">
         {TABS.map((t) => {
           const active = mode === t.id;
           return (
@@ -57,10 +57,10 @@ export function AISidebar({
               type="button"
               onClick={() => setMode(t.id)}
               className={[
-                "flex items-center gap-1.5 text-xs rounded-full px-3 py-2 border text-left",
+                "flex items-center gap-1.5 text-xs rounded px-3 py-2 border text-left",
                 active
-                  ? "bg-amber-accent text-white border-amber-accent"
-                  : "bg-cream-100 text-ink-700 border-cream-300 hover:border-amber-accent",
+                  ? "bg-blue-600 text-white border-blue-600"
+                  : "bg-white text-neutral-700 border-neutral-300 hover:border-blue-400",
               ].join(" ")}
             >
               <span className="opacity-80">{t.icon}</span>

@@ -1,4 +1,4 @@
-# PageMind
+# Wright
 
 A warm, elegant AI writing editor for authors. Built with Next.js, Tiptap, and Claude.
 
