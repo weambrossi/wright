@@ -17,7 +17,7 @@ import Table from "@tiptap/extension-table";
 import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FontSize } from "@/lib/tiptap/fontSize";
 import { BlockStyle } from "@/lib/tiptap/blockStyle";
 import { PageBreak } from "@/lib/tiptap/pageBreak";
@@ -98,12 +98,31 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
     },
   });
 
+  // Tiptap's useEditor only reads `content` at creation time. When the editor
+  // page bootstraps an uploaded document asynchronously (sessionStorage), the
+  // editor already exists and is empty, so push the content in once it arrives.
+  const appliedContentRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!editor) return;
+    if (!initialContent) return;
+    if (appliedContentRef.current === initialContent) return;
+    appliedContentRef.current = initialContent;
+    editor.commands.setContent(initialContent, true);
+  }, [editor, initialContent]);
+
   // Title persistence
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (initialTitle !== undefined) return;
     const saved = localStorage.getItem(TITLE_KEY);
     if (saved) setTitle(saved);
+  }, [initialTitle]);
+
+  // Sync title when an initial title arrives asynchronously (useState's
+  // initializer only runs on first render, so a later value is otherwise lost).
+  useEffect(() => {
+    if (initialTitle === undefined) return;
+    setTitle(initialTitle);
   }, [initialTitle]);
 
   useEffect(() => {
