@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Editor } from "@tiptap/react";
 import type { PageSettings } from "@/lib/pageSettings";
-import type { AIMode } from "@/components/ai/AISidebar";
+import type { AIAction } from "@/components/ai/AISidebar";
 import { HomeTab } from "./HomeTab";
 import { InsertTab } from "./InsertTab";
 import { LayoutTab } from "./LayoutTab";
@@ -24,7 +24,7 @@ interface RibbonToolbarProps {
   setPageSettings: (next: PageSettings) => void;
   onOpenFind: () => void;
   onOpenReplace: () => void;
-  onOpenAI: (mode: AIMode) => void;
+  onOpenAI: (action?: AIAction) => void;
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
 }
 

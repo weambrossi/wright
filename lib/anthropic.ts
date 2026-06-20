@@ -21,11 +21,13 @@ export const MODELS = {
 } as const;
 
 // Each AI feature is matched to the model that best fits its task:
+//  - chat:       open-ended conversation about the author's writing — strongest model
 //  - grammar:    fast, cheap, structured extraction over the whole document
 //  - rewrite:    frequent interactive edits — balanced quality/speed
 //  - brainstorm: open-ended creativity — strongest model
 //  - continue:   long-form prose that matches the author's voice — strongest model
 export const MODEL_BY_MODE: Record<AIMode, string> = {
+  chat: MODELS.opus,
   grammar: MODELS.haiku,
   rewrite: MODELS.sonnet,
   brainstorm: MODELS.opus,

@@ -7,7 +7,7 @@ import { useDocumentImport } from "@/hooks/useDocumentImport";
 import { RibbonToolbar } from "@/components/editor/ribbon/RibbonToolbar";
 import { PageCanvas } from "@/components/editor/PageCanvas";
 import { FindReplace } from "@/components/editor/FindReplace";
-import { AISidebar, type AIMode } from "@/components/ai/AISidebar";
+import { AISidebar, type AIAction } from "@/components/ai/AISidebar";
 import { ToastHost, useToasts } from "@/components/ui/Toast";
 
 const PENDING_HTML_KEY = "wright:pending-html";
@@ -24,7 +24,10 @@ export default function EditorPage() {
   const [find, setFind] = useState<{ open: boolean; mode: "find" | "replace" }>(
     { open: false, mode: "find" }
   );
-  const [aiMode, setAiMode] = useState<AIMode>("grammar");
+  const [aiTrigger, setAiTrigger] = useState<{
+    action: AIAction;
+    nonce: number;
+  } | null>(null);
   const [aiOpenMobile, setAiOpenMobile] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -142,8 +145,8 @@ export default function EditorPage() {
     });
   };
 
-  const openAI = (mode: AIMode) => {
-    setAiMode(mode);
+  const openAI = (action?: AIAction) => {
+    setAiTrigger(action ? { action, nonce: Date.now() } : null);
     setAiOpenMobile(true);
   };
 
@@ -225,11 +228,9 @@ export default function EditorPage() {
         <aside className="hidden h-full w-[340px] shrink-0 lg:flex">
           <div className="w-full">
             <AISidebar
-              key={aiMode}
               editor={editor}
               selectedText={selectedText}
-              thinking={false}
-              initialMode={aiMode}
+              trigger={aiTrigger}
               onToast={(t, k) => push({ text: t, kind: k })}
             />
           </div>
@@ -251,11 +252,9 @@ export default function EditorPage() {
             </div>
             <div className="h-[calc(100%-1.5rem)]">
               <AISidebar
-                key={`m-${aiMode}`}
                 editor={editor}
                 selectedText={selectedText}
-                thinking={false}
-                initialMode={aiMode}
+                trigger={aiTrigger}
                 onToast={(t, k) => push({ text: t, kind: k })}
               />
             </div>
