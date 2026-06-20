@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useAI } from "@/hooks/useAI";
 import type { ChatMessage } from "@/lib/prompts";
+import { Markdown } from "./Markdown";
 
 export type AIAction = "grammar" | "brainstorm" | "rewrite" | "continue";
 
@@ -212,13 +213,13 @@ export function ChatMode({
                 >
                   <div
                     className={[
-                      "max-w-[92%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-[13px] leading-relaxed",
+                      "max-w-[92%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed",
                       isUser
-                        ? "rounded-br-sm bg-blue-600 text-white"
+                        ? "whitespace-pre-wrap rounded-br-sm bg-blue-600 text-white"
                         : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800",
                     ].join(" ")}
                   >
-                    {m.content}
+                    {isUser ? m.content : <Markdown text={m.content} />}
                     {streamingThis && (
                       <span className="ml-0.5 inline-block h-[14px] w-[6px] animate-breath bg-blue-600 align-middle" />
                     )}
