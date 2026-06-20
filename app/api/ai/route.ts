@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getAnthropic, CLAUDE_MODEL, MAX_TOKENS } from "@/lib/anthropic";
+import { getAnthropic, MODEL_BY_MODE, CLAUDE_MODEL, MAX_TOKENS } from "@/lib/anthropic";
 import { buildUserPrompt, SYSTEM_PROMPT, AIRequest } from "@/lib/prompts";
 
 export const runtime = "nodejs";
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       try {
         const messageStream = anthropic.messages.stream({
-          model: CLAUDE_MODEL,
+          model: MODEL_BY_MODE[body.mode] ?? CLAUDE_MODEL,
           max_tokens: MAX_TOKENS,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: userPrompt }],
