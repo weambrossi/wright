@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { JSONContent } from "@tiptap/core";
 import { createDocument, listDocuments } from "@/lib/documentStore";
+import type { DocumentFilter, DocumentSort } from "@/lib/documentStore";
 
 export const runtime = "nodejs";
 
@@ -9,9 +10,13 @@ function fail(err: unknown) {
   return NextResponse.json({ error: msg }, { status: 500 });
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    return NextResponse.json({ documents: await listDocuments() });
+    const { searchParams } = req.nextUrl;
+    const filter = (searchParams.get("filter") ?? "recent") as DocumentFilter;
+    const q = searchParams.get("q") ?? undefined;
+    const sort = (searchParams.get("sort") ?? "updated_at") as DocumentSort;
+    return NextResponse.json({ documents: await listDocuments({ filter, q, sort }) });
   } catch (err) {
     return fail(err);
   }

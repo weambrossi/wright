@@ -2,11 +2,13 @@
 
 import type { Editor } from "@tiptap/react";
 import { ChatMode, type AIAction } from "./ChatMode";
+import type { AIChatSession } from "@/hooks/useAIChatSession";
 
 interface AIChatViewProps {
   editor: Editor | null;
   selectedText: string;
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
+  session: AIChatSession;
   trigger?: { action: AIAction; nonce: number } | null;
 }
 
@@ -14,6 +16,7 @@ export function AIChatView({
   editor,
   selectedText,
   onToast,
+  session,
   trigger,
 }: AIChatViewProps) {
   return (
@@ -31,6 +34,7 @@ export function AIChatView({
           editor={editor}
           selectedText={selectedText}
           onToast={onToast}
+          session={session}
           trigger={trigger}
           layout="full"
         />

@@ -1,83 +1,63 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { Editor } from "@tiptap/react";
-import { useAI } from "@/hooks/useAI";
-import type { ChatMessage } from "@/lib/prompts";
-import { editorJsonToAIText } from "@/lib/document/serializeForAI";
+import {
+  CHAT_ACTIONS,
+  DEFAULT_CHAT_PLACEHOLDER,
+  type AIAction,
+  type AIChatSession,
+  type ChatFileAttachment,
+} from "@/hooks/useAIChatSession";
 import { Markdown } from "./Markdown";
+import { ChatStreamCursor, ChatTypingIndicator } from "./ChatTypingIndicator";
 
-export type AIAction = "grammar" | "brainstorm" | "rewrite" | "continue";
+export type { AIAction };
 
 interface ChatModeProps {
   editor: Editor | null;
   selectedText: string;
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
+  session: AIChatSession;
   // A click on one of the ribbon AI tiles, with a nonce so repeat clicks re-fire.
   trigger?: { action: AIAction; nonce: number } | null;
   layout?: "sidebar" | "full";
 }
 
-interface ActionDef {
-  id: AIAction;
-  label: string;
-  // If true, the action needs highlighted text in the document.
-  needsSelection?: boolean;
-  // Whether selected text (when present) should ride along as attached context.
-  attachSelection?: boolean;
-  // The editable starter dropped into the composer. `hasSelection` lets the
-  // wording adapt to whether a passage is attached.
-  starter: (hasSelection: boolean) => string;
-}
-
-const ACTIONS: ActionDef[] = [
-  {
-    id: "grammar",
-    label: "Grammar & style",
-    attachSelection: true,
-    starter: (has) =>
-      has
-        ? "Check the grammar and style of this passage and suggest fixes. "
-        : "Check my whole draft for grammar, style, clarity, and flow, and show me your suggested fixes. ",
-  },
-  {
-    id: "brainstorm",
-    label: "Brainstorm",
-    starter: () => "I'd like to brainstorm. I'm thinking about ",
-  },
-  {
-    id: "rewrite",
-    label: "Rewrite",
-    needsSelection: true,
-    attachSelection: true,
-    starter: () => "Rewrite this passage — ",
-  },
-  {
-    id: "continue",
-    label: "Continue writing",
-    starter: () =>
-      "Continue writing from where I left off, matching my voice and pacing. ",
-  },
-];
-
 const GREETING =
-  "Hi — I'm Wright, your writing partner. Tell me what you're working on, or tap one of the buttons above to get started. When you highlight text first, those buttons bring it into our conversation so you can tell me exactly what you want.";
+  "Hi — I'm Wright, your writing partner. Tell me what you're working on, attach a .docx or text file for extra context, or pick a quick action below to get started. When you highlight text first, those actions bring it into our conversation.";
 
 export function ChatMode({
   editor,
   selectedText,
   onToast,
+  session,
   trigger,
   layout = "sidebar",
 }: ChatModeProps) {
   const isFull = layout === "full";
-  const { run, isStreaming } = useAI();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  // Text pulled from the document to send along as context with the next message.
-  const [attachment, setAttachment] = useState<string | null>(null);
+  const {
+    messages,
+    input,
+    setInput,
+    activeAction,
+    setActiveAction,
+    attachment,
+    fileAttachments,
+    parsingFiles,
+    fileAccept,
+    removeFile,
+    addFiles,
+    isStreaming,
+    applyAction,
+    getSelectionContext,
+    dismissSelectionContext,
+    send,
+    clearChat,
+  } = session;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Keep the latest message in view as it streams.
   useEffect(() => {
@@ -85,21 +65,10 @@ export function ChatMode({
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  const applyAction = (action: AIAction) => {
-    const def = ACTIONS.find((a) => a.id === action);
-    if (!def) return;
+  const seedAction = (action: AIAction) => {
+    const applied = applyAction(action, selectedText);
+    if (!applied) return;
 
-    const selection = selectedText.trim();
-    if (def.needsSelection && !selection) {
-      onToast("Select some text in your document first.", "info");
-      return;
-    }
-
-    const attach = def.attachSelection && selection ? selection : null;
-    setAttachment(attach);
-    setInput(def.starter(Boolean(attach)));
-
-    // Focus the composer and drop the cursor at the end so they can keep typing.
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
       if (ta) {
@@ -112,53 +81,12 @@ export function ChatMode({
 
   // Fire the action requested from the ribbon (re-fires on each click via nonce).
   useEffect(() => {
-    if (trigger) applyAction(trigger.action);
+    if (trigger) seedAction(trigger.action);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trigger?.nonce]);
 
-  const send = async () => {
-    const typed = input.trim();
-    if ((!typed && !attachment) || isStreaming) return;
-
-    const content = attachment
-      ? `${typed}\n\n"""\n${attachment}\n"""`
-      : typed;
-
-    const history = [...messages, { role: "user" as const, content }];
-    // Add the user turn plus an empty assistant turn we stream into.
-    setMessages([...history, { role: "assistant", content: "" }]);
-    setInput("");
-    setAttachment(null);
-
-    const documentContent = editor ? editorJsonToAIText(editor.getJSON()) : "";
-
-    await run(
-      {
-        mode: "chat",
-        messages: history,
-        documentContent,
-      },
-      {
-        onChunk: (_chunk, accumulated) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            next[next.length - 1] = { role: "assistant", content: accumulated };
-            return next;
-          });
-        },
-        onError: () => {
-          onToast("Wright couldn't respond — please try again.", "error");
-          setMessages((prev) => {
-            const next = [...prev];
-            if (next[next.length - 1]?.content === "") next.pop();
-            return next;
-          });
-        },
-      }
-    );
-  };
-
-  const insertIntoDoc = (text: string) => {
+  const insertIntoDoc = (message: string) => {
+    const text = getDocumentInsertText(message);
     if (!editor || !text.trim()) return;
     const paragraphs = text
       .split(/\n{2,}/)
@@ -170,50 +98,16 @@ export function ChatMode({
     onToast("Inserted into your document.", "success");
   };
 
-  const clearChat = () => {
-    setMessages([]);
-    setInput("");
-    setAttachment(null);
-  };
+  const activeDef = activeAction
+    ? CHAT_ACTIONS.find((a) => a.id === activeAction)
+    : null;
+  const inputPlaceholder = activeDef?.placeholder ?? DEFAULT_CHAT_PLACEHOLDER;
+  const inputHint = activeDef?.description ?? null;
+  const openFilePicker = () => fileInputRef.current?.click();
+  const selectionContext = getSelectionContext(selectedText);
 
   return (
     <div className="flex h-full flex-col">
-      {/* Actions — the four tools live above the chat and feed into it */}
-      <div
-        className={[
-          "border-b border-neutral-200",
-          isFull ? "px-4 py-3" : "px-3 py-2.5",
-        ].join(" ")}
-      >
-        <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-400">
-          Quick actions
-        </div>
-        <div
-          className={
-            isFull
-              ? "flex flex-wrap gap-2"
-              : "grid grid-cols-2 gap-1.5"
-          }
-        >
-          {ACTIONS.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => applyAction(a.id)}
-              disabled={isStreaming}
-              className={[
-                "rounded border border-neutral-300 bg-white text-neutral-700 hover:border-blue-400 hover:text-blue-700 disabled:opacity-50",
-                isFull
-                  ? "px-3.5 py-2 text-sm"
-                  : "px-2.5 py-1.5 text-left text-xs",
-              ].join(" ")}
-            >
-              {a.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Conversation */}
       <div
         ref={scrollRef}
@@ -244,11 +138,23 @@ export function ChatMode({
                       isUser
                         ? "whitespace-pre-wrap rounded-br-sm bg-blue-600 text-white"
                         : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800",
+                      !isUser && streamingThis && !m.content
+                        ? "min-w-[7.5rem]"
+                        : "",
                     ].join(" ")}
                   >
-                    {isUser ? m.content : <Markdown text={m.content} />}
-                    {streamingThis && (
-                      <span className="ml-0.5 inline-block h-[14px] w-[6px] animate-breath bg-blue-600 align-middle" />
+                    {isUser ? (
+                      <UserMessageBubble
+                        preview={m.userPreview ?? m.content}
+                        files={m.attachedFiles}
+                      />
+                    ) : streamingThis && !m.content ? (
+                      <ChatTypingIndicator />
+                    ) : (
+                      <>
+                        <Markdown text={m.content} />
+                        {streamingThis && <ChatStreamCursor />}
+                      </>
                     )}
                     {!isUser && m.content && !streamingThis && (
                       <div className="mt-2 flex justify-end">
@@ -277,7 +183,7 @@ export function ChatMode({
         ].join(" ")}
       >
         {messages.length > 0 && (
-          <div className="mb-1.5 flex justify-end">
+          <div className="mb-2 flex justify-end">
             <button
               type="button"
               onClick={clearChat}
@@ -288,13 +194,60 @@ export function ChatMode({
           </div>
         )}
 
-        {attachment && (
-          <div className="mb-1.5 flex items-start gap-2 rounded border-l-[3px] border-blue-600 bg-blue-50 px-2.5 py-1.5 text-xs text-neutral-600">
+        {/* Quick actions — sit above the input so they're close to where you type */}
+        <div className="mb-2.5">
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-400">
+            Quick actions
+          </div>
+          <div
+            className={
+              isFull
+                ? "flex flex-wrap gap-1.5"
+                : "grid grid-cols-2 gap-1.5"
+            }
+          >
+            {CHAT_ACTIONS.map((a) => {
+              const isActive = activeAction === a.id;
+              return (
+                <div key={a.id} className="group/action relative">
+                  <button
+                    type="button"
+                    onClick={() => seedAction(a.id)}
+                    disabled={isStreaming}
+                    aria-label={`${a.label}: ${a.description}`}
+                    aria-pressed={isActive}
+                    className={[
+                      "w-full rounded-lg border text-left transition-colors disabled:opacity-50",
+                      isFull ? "px-3 py-2 text-sm" : "px-2.5 py-1.5 text-xs",
+                      isActive
+                        ? "border-blue-500 bg-blue-50 text-blue-800"
+                        : "border-neutral-200 bg-neutral-50 text-neutral-700 hover:border-blue-300 hover:bg-blue-50/60 hover:text-blue-700",
+                    ].join(" ")}
+                  >
+                    {a.label}
+                  </button>
+                  <div
+                    role="tooltip"
+                    className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-max max-w-[min(220px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-[11px] leading-snug text-neutral-600 opacity-0 shadow-md transition-opacity group-hover/action:opacity-100 group-focus-within/action:opacity-100"
+                  >
+                    <span className="block font-medium text-neutral-800">
+                      {a.label}
+                    </span>
+                    {a.description}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {selectionContext && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border-l-[3px] border-blue-600 bg-blue-50 px-2.5 py-1.5 text-xs text-neutral-600">
             <span className="mt-[1px] text-blue-600">✦</span>
-            <span className="line-clamp-2 flex-1">“{attachment}”</span>
+            <span className="line-clamp-2 flex-1">“{selectionContext}”</span>
             <button
               type="button"
-              onClick={() => setAttachment(null)}
+              onClick={() => dismissSelectionContext(selectedText)}
               className="shrink-0 text-neutral-400 hover:text-neutral-700"
               aria-label="Remove attached text"
             >
@@ -303,25 +256,91 @@ export function ChatMode({
           </div>
         )}
 
+        {fileAttachments.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {fileAttachments.map((file) => (
+              <div
+                key={file.id}
+                className="flex max-w-full items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 py-1 pl-2 pr-1 text-xs text-neutral-700"
+              >
+                <FileIcon />
+                <span className="truncate">{file.name}</span>
+                {file.truncated && (
+                  <span className="shrink-0 text-[10px] text-neutral-400">
+                    trimmed
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removeFile(file.id)}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700"
+                  aria-label={`Remove ${file.name}`}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {inputHint && (
+          <p id="chat-input-hint" className="mb-1.5 text-[11px] leading-snug text-neutral-500">
+            {inputHint}
+          </p>
+        )}
+
         <div className="flex items-end gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={fileAccept}
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const picked = e.target.files;
+              if (picked?.length) void addFiles(picked);
+            }}
+          />
+          <button
+            type="button"
+            onClick={openFilePicker}
+            disabled={isStreaming || parsingFiles}
+            title="Attach .docx, .txt, or .md for context"
+            aria-label="Attach file for context"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
+          >
+            {parsingFiles ? (
+              <SpinnerIcon />
+            ) : (
+              <PlusIcon />
+            )}
+          </button>
           <textarea
             ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (activeAction) setActiveAction(null);
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                void send();
+                void send(selectedText);
               }
             }}
             rows={isFull ? 3 : 2}
-            placeholder="Talk to Wright about your writing…"
+            placeholder={inputPlaceholder}
+            aria-describedby={inputHint ? "chat-input-hint" : undefined}
             className="flex-1 resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
           />
           <button
             type="button"
-            onClick={() => void send()}
-            disabled={isStreaming || (!input.trim() && !attachment)}
+            onClick={() => void send(selectedText)}
+            disabled={
+              isStreaming ||
+              parsingFiles ||
+              (!input.trim() && !selectionContext && fileAttachments.length === 0)
+            }
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
             aria-label="Send"
           >
@@ -336,9 +355,125 @@ export function ChatMode({
   );
 }
 
+function UserMessageBubble({
+  preview,
+  files,
+}: {
+  preview: string;
+  files?: Pick<ChatFileAttachment, "name" | "truncated">[];
+}) {
+  return (
+    <div className="space-y-1.5">
+      {preview && <div className="whitespace-pre-wrap">{preview}</div>}
+      {files && files.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {files.map((file) => (
+            <span
+              key={file.name}
+              className="inline-flex items-center gap-1 rounded-md bg-blue-500/20 px-1.5 py-0.5 text-[11px] text-blue-50"
+            >
+              <FileIcon className="h-3 w-3" />
+              {file.name}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg
+      className="animate-spin"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      aria-hidden="true"
+    >
+      <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+    </svg>
+  );
+}
+
+function FileIcon({ className = "h-3.5 w-3.5 shrink-0" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+    </svg>
+  );
+}
+
 function escapeHtml(s: string) {
   return s
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+function getDocumentInsertText(message: string) {
+  const highlightedSegments = extractMarkdownBlockquotes(message);
+  if (highlightedSegments.length > 0) {
+    return highlightedSegments.join("\n\n");
+  }
+
+  return message.trim();
+}
+
+function extractMarkdownBlockquotes(markdown: string) {
+  const segments: string[] = [];
+  let current: string[] = [];
+
+  for (const line of markdown.split(/\r?\n/)) {
+    const quoteMatch = line.match(/^ {0,3}>\s?(.*)$/);
+    if (quoteMatch) {
+      current.push(quoteMatch[1]);
+      continue;
+    }
+
+    if (current.length > 0) {
+      const segment = current.join("\n").trim();
+      if (segment) segments.push(segment);
+      current = [];
+    }
+  }
+
+  if (current.length > 0) {
+    const segment = current.join("\n").trim();
+    if (segment) segments.push(segment);
+  }
+
+  return segments;
 }

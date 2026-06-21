@@ -67,6 +67,14 @@ const config: Config = {
           "0%": { opacity: "0", transform: "translateY(10px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
         },
+        typingDot: {
+          "0%, 60%, 100%": { transform: "translateY(0)", opacity: "0.35" },
+          "30%": { transform: "translateY(-5px)", opacity: "1" },
+        },
+        streamCursor: {
+          "0%, 45%": { opacity: "1" },
+          "50%, 100%": { opacity: "0.15" },
+        },
       },
       animation: {
         breath: "breath 2s ease-in-out infinite",
@@ -74,6 +82,8 @@ const config: Config = {
         shimmer: "shimmer 2s linear infinite",
         fadeBorder: "fadeBorder 3s ease-out forwards",
         slideUp: "slideUp 200ms ease-out",
+        "typing-dot": "typingDot 1.2s ease-in-out infinite",
+        "stream-cursor": "streamCursor 1s step-end infinite",
       },
     },
   },

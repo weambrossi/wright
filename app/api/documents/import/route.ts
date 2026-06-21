@@ -45,6 +45,13 @@ export async function POST(req: NextRequest) {
       buffer,
     });
 
+    const documentTypeMap: Record<string, string> = {
+      docx: "imported_docx",
+      pdf: "imported_pdf",
+      txt: "imported_txt",
+      markdown: "imported_md",
+    };
+
     if (!existingDocumentId) {
       await createImportedDocument({
         id: documentId,
@@ -52,6 +59,7 @@ export async function POST(req: NextRequest) {
         html: imported.html,
         contentJson: imported.contentJson,
         warnings: imported.warnings,
+        documentType: documentTypeMap[validated.key] ?? "native",
       });
     }
 
