@@ -1,150 +1,173 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { DocumentImportButton } from "@/components/document/DocumentImportButton";
 
-const PENDING_HTML_KEY = "wright:pending-html";
-const PENDING_FILENAME_KEY = "wright:pending-filename";
+interface DocumentSummary {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
 
-export default function LandingPage() {
+export default function LibraryPage() {
   const router = useRouter();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [docs, setDocs] = useState<DocumentSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  const handleFile = useCallback(
-    async (file: File) => {
-      setError(null);
-      setUploading(true);
-      try {
-        const fd = new FormData();
-        fd.append("file", file);
-        const res = await fetch("/api/upload", { method: "POST", body: fd });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Could not parse that document");
-        }
-        const data = (await res.json()) as { html: string; filename: string };
-        sessionStorage.setItem(PENDING_HTML_KEY, data.html);
-        sessionStorage.setItem(
-          PENDING_FILENAME_KEY,
-          data.filename.replace(/\.docx$/i, "")
-        );
-        router.push("/editor");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Upload failed");
-        setUploading(false);
-      }
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/documents");
+      if (!res.ok) throw new Error("Could not load your documents");
+      const data = (await res.json()) as { documents: DocumentSummary[] };
+      setDocs(data.documents);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load");
+      setDocs([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const createBlankAndOpen = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/documents", { method: "POST" });
+      if (!res.ok) throw new Error("Could not create a document");
+      const doc = (await res.json()) as DocumentSummary;
+      router.push(`/editor/${doc.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create");
+      setBusy(false);
+    }
+  }, [router]);
+
+  const rename = useCallback(
+    async (doc: DocumentSummary) => {
+      const next = window.prompt("Rename document", doc.title);
+      if (next == null || next.trim() === doc.title) return;
+      await fetch(`/api/documents/${doc.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: next.trim() }),
+      });
+      load();
     },
-    [router]
+    [load]
   );
 
-  const onDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragging(false);
-      const file = e.dataTransfer.files?.[0];
-      if (file) handleFile(file);
+  const remove = useCallback(
+    async (doc: DocumentSummary) => {
+      if (!window.confirm(`Delete “${doc.title}”? This can't be undone.`)) return;
+      setDocs((d) => (d ? d.filter((x) => x.id !== doc.id) : d));
+      await fetch(`/api/documents/${doc.id}`, { method: "DELETE" });
     },
-    [handleFile]
-  );
-
-  const onChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) handleFile(file);
-    },
-    [handleFile]
+    []
   );
 
   return (
-    <main className="min-h-screen w-full bg-cream-50 flex flex-col items-center justify-center px-6 py-12">
-      <div className="w-full max-w-xl flex flex-col items-center text-center">
-        <div className="font-serif italic text-5xl text-ink-900 tracking-tight">
-          Wright
-        </div>
-        <div className="mt-4 text-ink-500 text-base">
-          Your book, with an AI collaborator.
-        </div>
-
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          disabled={uploading}
-          className={[
-            "mt-12 w-full rounded-modal border-2 border-dashed px-8 py-16 flex flex-col items-center justify-center gap-3",
-            "transition",
-            dragging
-              ? "border-amber-accent bg-amber-light"
-              : "border-cream-300 bg-cream-100/40 hover:border-amber-accent hover:bg-amber-light",
-            uploading ? "opacity-60 cursor-wait" : "cursor-pointer",
-          ].join(" ")}
-        >
-          <UploadIcon />
-          <div className="text-ink-700 text-base">
-            {uploading ? (
-              <span>Reading your document…</span>
-            ) : (
-              <>
-                <span className="font-medium">Drop your .docx here</span>
-                <span className="text-ink-500"> or click to browse</span>
-              </>
-            )}
+    <main className="min-h-screen w-full bg-cream-50 px-6 py-12">
+      <div className="mx-auto w-full max-w-2xl">
+        <div className="flex items-end justify-between">
+          <div>
+            <div className="font-serif italic text-4xl text-ink-900 tracking-tight">
+              Wright
+            </div>
+            <div className="mt-1 text-ink-500 text-sm">Your documents</div>
           </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            className="hidden"
-            onChange={onChange}
-          />
-        </button>
+          <div className="flex items-center gap-2">
+            <DocumentImportButton
+              label="Import document"
+              busyLabel="Importing..."
+              disabled={busy}
+              showHelper
+              className="rounded-modal border border-cream-300 bg-white px-3 py-2 text-sm text-ink-700 hover:border-amber-accent disabled:opacity-60"
+              beforeImport={() => {
+                setBusy(true);
+                setError(null);
+                return true;
+              }}
+              onImported={(result) => {
+                router.push(`/editor/${result.document.id}`);
+              }}
+              onError={(message) => {
+                setError(message);
+                setBusy(false);
+              }}
+            />
+            <button
+              type="button"
+              onClick={createBlankAndOpen}
+              disabled={busy}
+              className="rounded-modal bg-amber-accent px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+            >
+              New document
+            </button>
+          </div>
+        </div>
 
-        {error && (
-          <div className="mt-4 text-sm text-red-soft">{error}</div>
-        )}
+        {error && <div className="mt-4 text-sm text-red-soft">{error}</div>}
 
-        <button
-          type="button"
-          onClick={() => router.push("/editor")}
-          className="mt-6 text-amber-accent text-sm hover:underline"
-        >
-          Or start with a blank document →
-        </button>
+        <div className="mt-8 flex flex-col gap-2">
+          {docs === null ? (
+            <div className="text-ink-500 text-sm">Loading…</div>
+          ) : docs.length === 0 ? (
+            <div className="rounded-modal border-2 border-dashed border-cream-300 bg-cream-100/40 px-8 py-16 text-center text-ink-500">
+              No documents yet. Create a new one or import a document to begin.
+            </div>
+          ) : (
+            docs.map((doc) => (
+              <div
+                key={doc.id}
+                className="group flex items-center gap-3 rounded-modal border border-cream-300 bg-white px-4 py-3 hover:border-amber-accent"
+              >
+                <button
+                  type="button"
+                  onClick={() => router.push(`/editor/${doc.id}`)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <div className="truncate font-medium text-ink-900">
+                    {doc.title || "Untitled Document"}
+                  </div>
+                  <div className="text-xs text-ink-500">
+                    Edited {formatWhen(doc.updatedAt)}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => rename(doc)}
+                  className="rounded px-2 py-1 text-xs text-ink-500 opacity-0 hover:bg-cream-100 group-hover:opacity-100"
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={() => remove(doc)}
+                  className="rounded px-2 py-1 text-xs text-red-soft opacity-0 hover:bg-red-50 group-hover:opacity-100"
+                >
+                  Delete
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </div>
-
-      <footer className="mt-24 flex items-center gap-2 text-xs text-ink-500">
-        <span>Powered by</span>
-        <span className="font-medium text-ink-700">Claude</span>
-        <span aria-hidden className="inline-block w-1.5 h-1.5 rounded-full bg-amber-accent" />
-      </footer>
     </main>
   );
 }
 
-function UploadIcon() {
-  return (
-    <svg
-      width="32"
-      height="32"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="text-ink-500"
-    >
-      <path d="M12 3v12" />
-      <path d="m7 8 5-5 5 5" />
-      <path d="M5 21h14" />
-    </svg>
-  );
+function formatWhen(iso: string): string {
+  if (!iso) return "just now";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "recently";
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }

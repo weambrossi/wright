@@ -1,42 +1,25 @@
 "use client";
 
+import type { JSONContent } from "@tiptap/core";
 import { useEditor as useTiptap } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Typography from "@tiptap/extension-typography";
-import Underline from "@tiptap/extension-underline";
-import TextAlign from "@tiptap/extension-text-align";
-import CharacterCount from "@tiptap/extension-character-count";
-import Placeholder from "@tiptap/extension-placeholder";
-import TextStyle from "@tiptap/extension-text-style";
-import Color from "@tiptap/extension-color";
-import Highlight from "@tiptap/extension-highlight";
-import FontFamily from "@tiptap/extension-font-family";
-import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
-import Table from "@tiptap/extension-table";
-import TableRow from "@tiptap/extension-table-row";
-import TableCell from "@tiptap/extension-table-cell";
-import TableHeader from "@tiptap/extension-table-header";
 import { useEffect, useRef, useState } from "react";
-import { FontSize } from "@/lib/tiptap/fontSize";
-import { BlockStyle } from "@/lib/tiptap/blockStyle";
-import { PageBreak } from "@/lib/tiptap/pageBreak";
 import {
   DEFAULT_PAGE_SETTINGS,
   type PageSettings,
 } from "@/lib/pageSettings";
-
-const STORAGE_KEY = "wright:document-html";
-const TITLE_KEY = "wright:document-title";
+import { getWrightExtensions } from "@/lib/tiptap/extensions";
 
 export interface UseEditorOptions {
-  initialContent?: string;
+  initialContent?: string | JSONContent;
   initialTitle?: string;
+  /** When set, edits autosave to /api/documents/[id] (the database). */
+  documentId?: string;
   autosaveMs?: number;
 }
 
 export function useWrightEditor(opts: UseEditorOptions = {}) {
-  const { initialContent = "", initialTitle, autosaveMs = 30_000 } = opts;
+  const { initialContent, initialTitle, documentId, autosaveMs = 30_000 } =
+    opts;
   const [selectedText, setSelectedText] = useState("");
   const [wordCount, setWordCount] = useState(0);
   const [title, setTitle] = useState(initialTitle ?? "Untitled Document");
@@ -46,32 +29,10 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
   const [, setSelectionTick] = useState(0);
 
   const editor = useTiptap({
-    extensions: [
-      StarterKit.configure({
-        heading: { levels: [1, 2, 3, 4, 5] },
-      }),
-      Typography,
-      Underline,
-      TextStyle,
-      Color,
-      FontFamily,
-      FontSize,
-      BlockStyle,
-      PageBreak,
-      Highlight.configure({ multicolor: true }),
-      Link.configure({ openOnClick: false, autolink: true }),
-      Image.configure({ inline: false, allowBase64: true }),
-      Table.configure({ resizable: true }),
-      TableRow,
-      TableHeader,
-      TableCell,
-      TextAlign.configure({ types: ["heading", "paragraph"] }),
-      CharacterCount,
-      Placeholder.configure({
-        placeholder: "Begin writing, or upload a document to get started...",
-      }),
-    ],
-    content: initialContent,
+    extensions: getWrightExtensions({
+      placeholder: "Begin writing, or upload a document to get started...",
+    }),
+    content: initialContent ?? "",
     editorProps: {
       attributes: {
         class: "wright-prose",
@@ -105,18 +66,14 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
   useEffect(() => {
     if (!editor) return;
     if (!initialContent) return;
-    if (appliedContentRef.current === initialContent) return;
-    appliedContentRef.current = initialContent;
+    const contentKey =
+      typeof initialContent === "string"
+        ? initialContent
+        : JSON.stringify(initialContent);
+    if (appliedContentRef.current === contentKey) return;
+    appliedContentRef.current = contentKey;
     editor.commands.setContent(initialContent, true);
   }, [editor, initialContent]);
-
-  // Title persistence
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (initialTitle !== undefined) return;
-    const saved = localStorage.getItem(TITLE_KEY);
-    if (saved) setTitle(saved);
-  }, [initialTitle]);
 
   // Sync title when an initial title arrives asynchronously (useState's
   // initializer only runs on first render, so a later value is otherwise lost).
@@ -125,24 +82,65 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
     setTitle(initialTitle);
   }, [initialTitle]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(TITLE_KEY, title);
-  }, [title]);
+  // Autosave to the database (PUT /api/documents/[id]). We debounce on edits,
+  // flush on a steady interval, and flush when the tab is hidden/closed so
+  // nothing is lost. `saveRef` lets the title effect reuse the same writer.
+  const titleRef = useRef(title);
+  titleRef.current = title;
+  const saveRef = useRef<() => Promise<void>>(async () => {});
 
-  // Autosave
   useEffect(() => {
-    if (!editor) return;
-    const id = window.setInterval(() => {
+    if (!editor || !documentId) return;
+
+    const save = async () => {
       try {
         const html = editor.getHTML();
-        localStorage.setItem(STORAGE_KEY, html);
+        const contentJson = editor.getJSON();
+        // keepalive lets the request finish even as the tab is closing.
+        await fetch(`/api/documents/${documentId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ html, contentJson, title: titleRef.current }),
+          keepalive: true,
+        });
       } catch {
         // ignore
       }
-    }, autosaveMs);
-    return () => window.clearInterval(id);
-  }, [editor, autosaveMs]);
+    };
+    saveRef.current = save;
+
+    let debounce: number | undefined;
+    const onUpdate = () => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => void save(), 1500);
+    };
+    editor.on("update", onUpdate);
+
+    const interval = window.setInterval(() => void save(), autosaveMs);
+
+    const onHide = () => {
+      if (document.visibilityState === "hidden") void save();
+    };
+    const onBeforeUnload = () => void save();
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      window.clearTimeout(debounce);
+      window.clearInterval(interval);
+      editor.off("update", onUpdate);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      void save(); // flush on unmount (e.g. navigating back to the document list)
+    };
+  }, [editor, autosaveMs, documentId]);
+
+  // Renaming the document should persist too — debounce a save on title change.
+  useEffect(() => {
+    if (!editor || !documentId) return;
+    const id = window.setTimeout(() => void saveRef.current(), 1500);
+    return () => window.clearTimeout(id);
+  }, [title, editor, documentId]);
 
   return {
     editor,
@@ -152,10 +150,6 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
     setTitle,
     pageSettings,
     setPageSettings,
+    saveNow: () => saveRef.current(),
   };
 }
-
-export const STORAGE_KEYS = {
-  CONTENT: STORAGE_KEY,
-  TITLE: TITLE_KEY,
-};

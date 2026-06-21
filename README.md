@@ -27,4 +27,5 @@ Open http://localhost:3000.
 - Tiptap (with StarterKit, Typography, Underline, TextAlign, CharacterCount, Placeholder)
 - Anthropic SDK — `claude-opus-4-20250514`
 - mammoth (.docx import)
+- sanitize-html + @tiptap/html (safe import normalization)
 - html-to-docx (.docx export)
