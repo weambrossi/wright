@@ -1,15 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import type { Editor } from "@tiptap/react";
 import type { PageSettings } from "@/lib/pageSettings";
-import type { AIAction } from "@/components/ai/AISidebar";
 import { HomeTab } from "./HomeTab";
 import { InsertTab } from "./InsertTab";
 import { LayoutTab } from "./LayoutTab";
-import { AITab } from "./AITab";
 
-type TabId = "home" | "insert" | "layout" | "ai";
+export type TabId = "home" | "insert" | "layout" | "ai";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "home", label: "Home" },
@@ -22,9 +19,10 @@ interface RibbonToolbarProps {
   editor: Editor | null;
   pageSettings: PageSettings;
   setPageSettings: (next: PageSettings) => void;
+  activeTab: TabId;
+  onTabChange: (tab: TabId) => void;
   onOpenFind: () => void;
   onOpenReplace: () => void;
-  onOpenAI: (action?: AIAction) => void;
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
 }
 
@@ -32,24 +30,24 @@ export function RibbonToolbar({
   editor,
   pageSettings,
   setPageSettings,
+  activeTab,
+  onTabChange,
   onOpenFind,
   onOpenReplace,
-  onOpenAI,
   onToast,
 }: RibbonToolbarProps) {
-  const [tab, setTab] = useState<TabId>("home");
 
   return (
     <div className="z-20 border-b border-neutral-300 bg-neutral-100">
       {/* Tab row */}
       <div className="flex items-center gap-1 px-3 pt-1.5">
         {TABS.map((t) => {
-          const active = tab === t.id;
+          const active = activeTab === t.id;
           return (
             <button
               key={t.id}
               type="button"
-              onClick={() => setTab(t.id)}
+              onClick={() => onTabChange(t.id)}
               className={[
                 "rounded-t px-3 py-1.5 text-[13px] font-medium",
                 active
@@ -63,30 +61,31 @@ export function RibbonToolbar({
         })}
       </div>
 
-      {/* Ribbon body */}
-      <div className="overflow-x-auto border-t border-neutral-200 bg-white">
-        <div className="flex min-h-[88px] min-w-max items-stretch px-3 py-2">
-          {editor && tab === "home" && (
-            <HomeTab
-              editor={editor}
-              onOpenFind={onOpenFind}
-              onOpenReplace={onOpenReplace}
-              onToast={onToast}
-            />
-          )}
-          {editor && tab === "insert" && (
-            <InsertTab editor={editor} onToast={onToast} />
-          )}
-          {editor && tab === "layout" && (
-            <LayoutTab
-              editor={editor}
-              pageSettings={pageSettings}
-              setPageSettings={setPageSettings}
-            />
-          )}
-          {tab === "ai" && <AITab onOpenAI={onOpenAI} />}
+      {/* Ribbon body — hidden on AI tab (full chat replaces it) */}
+      {activeTab !== "ai" && (
+        <div className="overflow-x-auto border-t border-neutral-200 bg-white">
+          <div className="flex min-h-[88px] min-w-max items-stretch px-3 py-2">
+            {editor && activeTab === "home" && (
+              <HomeTab
+                editor={editor}
+                onOpenFind={onOpenFind}
+                onOpenReplace={onOpenReplace}
+                onToast={onToast}
+              />
+            )}
+            {editor && activeTab === "insert" && (
+              <InsertTab editor={editor} onToast={onToast} />
+            )}
+            {editor && activeTab === "layout" && (
+              <LayoutTab
+                editor={editor}
+                pageSettings={pageSettings}
+                setPageSettings={setPageSettings}
+              />
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

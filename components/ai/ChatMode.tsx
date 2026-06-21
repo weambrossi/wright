@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useAI } from "@/hooks/useAI";
 import type { ChatMessage } from "@/lib/prompts";
+import { editorJsonToAIText } from "@/lib/document/serializeForAI";
 import { Markdown } from "./Markdown";
 
 export type AIAction = "grammar" | "brainstorm" | "rewrite" | "continue";
@@ -14,6 +15,7 @@ interface ChatModeProps {
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
   // A click on one of the ribbon AI tiles, with a nonce so repeat clicks re-fire.
   trigger?: { action: AIAction; nonce: number } | null;
+  layout?: "sidebar" | "full";
 }
 
 interface ActionDef {
@@ -66,7 +68,9 @@ export function ChatMode({
   selectedText,
   onToast,
   trigger,
+  layout = "sidebar",
 }: ChatModeProps) {
+  const isFull = layout === "full";
   const { run, isStreaming } = useAI();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -126,7 +130,7 @@ export function ChatMode({
     setInput("");
     setAttachment(null);
 
-    const documentContent = editor?.getText() ?? "";
+    const documentContent = editor ? editorJsonToAIText(editor.getJSON()) : "";
 
     await run(
       {
@@ -175,18 +179,34 @@ export function ChatMode({
   return (
     <div className="flex h-full flex-col">
       {/* Actions — the four tools live above the chat and feed into it */}
-      <div className="border-b border-neutral-200 px-3 py-2.5">
+      <div
+        className={[
+          "border-b border-neutral-200",
+          isFull ? "px-4 py-3" : "px-3 py-2.5",
+        ].join(" ")}
+      >
         <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-400">
           Quick actions
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
+        <div
+          className={
+            isFull
+              ? "flex flex-wrap gap-2"
+              : "grid grid-cols-2 gap-1.5"
+          }
+        >
           {ACTIONS.map((a) => (
             <button
               key={a.id}
               type="button"
               onClick={() => applyAction(a.id)}
               disabled={isStreaming}
-              className="rounded border border-neutral-300 bg-white px-2.5 py-1.5 text-left text-xs text-neutral-700 hover:border-blue-400 hover:text-blue-700 disabled:opacity-50"
+              className={[
+                "rounded border border-neutral-300 bg-white text-neutral-700 hover:border-blue-400 hover:text-blue-700 disabled:opacity-50",
+                isFull
+                  ? "px-3.5 py-2 text-sm"
+                  : "px-2.5 py-1.5 text-left text-xs",
+              ].join(" ")}
             >
               {a.label}
             </button>
@@ -195,7 +215,13 @@ export function ChatMode({
       </div>
 
       {/* Conversation */}
-      <div ref={scrollRef} className="flex-1 overflow-auto px-3 py-3">
+      <div
+        ref={scrollRef}
+        className={[
+          "flex-1 overflow-auto py-3",
+          isFull ? "px-4" : "px-3",
+        ].join(" ")}
+      >
         {messages.length === 0 ? (
           <div className="rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-[13px] leading-relaxed text-neutral-600">
             {GREETING}
@@ -213,7 +239,8 @@ export function ChatMode({
                 >
                   <div
                     className={[
-                      "max-w-[92%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed",
+                      "rounded-2xl px-3 py-2 text-[13px] leading-relaxed",
+                      isFull ? "max-w-[85%]" : "max-w-[92%]",
                       isUser
                         ? "whitespace-pre-wrap rounded-br-sm bg-blue-600 text-white"
                         : "rounded-bl-sm border border-neutral-200 bg-white text-neutral-800",
@@ -243,7 +270,12 @@ export function ChatMode({
       </div>
 
       {/* Composer */}
-      <div className="border-t border-neutral-200 bg-white p-2.5">
+      <div
+        className={[
+          "border-t border-neutral-200 bg-white",
+          isFull ? "p-4" : "p-2.5",
+        ].join(" ")}
+      >
         {messages.length > 0 && (
           <div className="mb-1.5 flex justify-end">
             <button
@@ -282,7 +314,7 @@ export function ChatMode({
                 void send();
               }
             }}
-            rows={2}
+            rows={isFull ? 3 : 2}
             placeholder="Talk to Wright about your writing…"
             className="flex-1 resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
           />
