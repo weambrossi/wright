@@ -92,6 +92,27 @@ begin
 end $$;
 ```
 
+## 2b. Document Library migration (run after step 2)
+
+The Document Library feature requires additional columns. In the SQL Editor, run:
+
+```sql
+-- Document Library columns
+alter table documents add column if not exists is_starred    boolean      not null default false;
+alter table documents add column if not exists is_trashed    boolean      not null default false;
+alter table documents add column if not exists document_type text         not null default 'native';
+alter table documents add column if not exists plain_text    text         null;
+alter table documents add column if not exists word_count    integer      not null default 0;
+alter table documents add column if not exists character_count integer    not null default 0;
+alter table documents add column if not exists last_opened_at timestamptz null;
+
+-- Index for fast library queries
+create index if not exists documents_is_trashed_updated on documents (is_trashed, updated_at desc);
+create index if not exists documents_is_starred_updated on documents (is_starred, is_trashed, updated_at desc);
+```
+
+Run this even if you already have the `documents` table — `add column if not exists` is safe on existing data.
+
 ## 3. Create the private source-file bucket
 
 The app will try to create this bucket automatically with the service-role key.

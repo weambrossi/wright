@@ -58,7 +58,7 @@ export function DocumentImportButton({
         {importing ? busyLabel : label}
       </button>
       {showHelper && (
-        <div className="text-xs leading-relaxed text-ink-500">
+        <div className="text-xs leading-relaxed text-neutral-500">
           Upload .docx, .txt, .md, or .pdf. DOCX becomes editable; PDF imports
           as a reference.
         </div>

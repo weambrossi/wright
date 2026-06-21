@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import type { JSONContent } from "@tiptap/core";
 import { useParams, useRouter } from "next/navigation";
 import { useWrightEditor } from "@/hooks/useEditor";
+import type { SaveStatus } from "@/hooks/useEditor";
+import { useAIChatSession } from "@/hooks/useAIChatSession";
 import { DocumentImportButton } from "@/components/document/DocumentImportButton";
 import { RibbonToolbar, type TabId } from "@/components/editor/ribbon/RibbonToolbar";
 import { PageCanvas } from "@/components/editor/PageCanvas";
@@ -75,10 +77,15 @@ export default function EditorPage() {
     setTitle,
     pageSettings,
     setPageSettings,
+    saveStatus,
     saveNow,
   } = useWrightEditor({ initialContent, initialTitle, documentId });
+  const aiChatSession = useAIChatSession({
+    editor,
+    onToast: (text, kind) => push({ text, kind }),
+  });
 
-  // Keyboard shortcuts: Cmd+S export, Cmd+F find, Cmd+H replace.
+  // Keyboard shortcuts: Cmd+S → save, Cmd+F find, Cmd+H replace.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -86,7 +93,7 @@ export default function EditorPage() {
       const key = e.key.toLowerCase();
       if (key === "s") {
         e.preventDefault();
-        handleExport();
+        void saveNow();
       } else if (key === "f") {
         e.preventDefault();
         setFind({ open: true, mode: "find" });
@@ -152,6 +159,27 @@ export default function EditorPage() {
           className="min-w-0 flex-1 rounded border border-transparent px-2 py-1 text-sm font-medium text-neutral-800 hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
           placeholder="Untitled Document"
         />
+
+        {/* Save status indicator */}
+        <SaveStatusBadge status={saveStatus} onRetry={() => void saveNow()} />
+
+        {/* Manual Save button */}
+        <button
+          type="button"
+          onClick={() => void saveNow()}
+          disabled={saveStatus === "saving"}
+          title="Save (⌘S)"
+          className={[
+            "rounded px-2.5 py-1 text-xs font-medium transition",
+            saveStatus === "dirty" || saveStatus === "error"
+              ? "bg-amber-accent text-white hover:bg-amber-accent/90"
+              : "border border-neutral-300 text-neutral-700 hover:bg-neutral-100",
+            saveStatus === "saving" ? "opacity-60" : "",
+          ].join(" ")}
+        >
+          {saveStatus === "saving" ? "Saving…" : "Save"}
+        </button>
+
         <span className="hidden text-xs text-neutral-500 sm:inline">
           {wordCount.toLocaleString()} words
         </span>
@@ -242,6 +270,7 @@ export default function EditorPage() {
               editor={editor}
               selectedText={selectedText}
               onToast={(t, k) => push({ text: t, kind: k })}
+              session={aiChatSession}
             />
           </div>
         </main>
@@ -264,6 +293,7 @@ export default function EditorPage() {
               selectedText={selectedText}
               onClose={() => setAiOpenDesktop(false)}
               onToast={(t, k) => push({ text: t, kind: k })}
+              session={aiChatSession}
             />
           </div>
           {!aiOpenDesktop && (
@@ -317,6 +347,7 @@ export default function EditorPage() {
                 onClose={() => setAiOpenMobile(false)}
                 closeDirection="down"
                 onToast={(t, k) => push({ text: t, kind: k })}
+                session={aiChatSession}
               />
             </div>
           </div>
@@ -325,6 +356,55 @@ export default function EditorPage() {
 
       <ToastHost toasts={toasts} onDismiss={dismiss} />
     </div>
+  );
+}
+
+function SaveStatusBadge({
+  status,
+  onRetry,
+}: {
+  status: SaveStatus;
+  onRetry: () => void;
+}) {
+  if (status === "idle") return null;
+
+  if (status === "saving") {
+    return (
+      <span className="flex items-center gap-1 text-xs text-neutral-400">
+        <svg className="animate-spin" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        Saving…
+      </span>
+    );
+  }
+
+  if (status === "saved") {
+    return (
+      <span className="flex items-center gap-1 text-xs text-green-600">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M20 6 9 17l-5-5" />
+        </svg>
+        Saved
+      </span>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <button
+        type="button"
+        onClick={onRetry}
+        className="flex items-center gap-1 text-xs text-red-500 hover:underline"
+      >
+        Save failed — retry
+      </button>
+    );
+  }
+
+  // dirty
+  return (
+    <span className="text-xs text-amber-accent">Unsaved changes</span>
   );
 }
 

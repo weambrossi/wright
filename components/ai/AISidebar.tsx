@@ -2,6 +2,7 @@
 
 import type { Editor } from "@tiptap/react";
 import { ChatMode, type AIAction } from "./ChatMode";
+import type { AIChatSession } from "@/hooks/useAIChatSession";
 
 export type { AIAction };
 
@@ -9,6 +10,7 @@ interface AISidebarProps {
   editor: Editor | null;
   selectedText: string;
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
+  session: AIChatSession;
   onClose?: () => void;
   closeDirection?: "right" | "down";
   // A ribbon AI tile was clicked — seeds the chat with that action.
@@ -19,6 +21,7 @@ export function AISidebar({
   editor,
   selectedText,
   onToast,
+  session,
   onClose,
   closeDirection = "right",
   trigger,
@@ -64,6 +67,7 @@ export function AISidebar({
           editor={editor}
           selectedText={selectedText}
           onToast={onToast}
+          session={session}
           trigger={trigger}
         />
       </div>

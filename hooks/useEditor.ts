@@ -2,29 +2,30 @@
 
 import type { JSONContent } from "@tiptap/core";
 import { useEditor as useTiptap } from "@tiptap/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DEFAULT_PAGE_SETTINGS,
   type PageSettings,
 } from "@/lib/pageSettings";
 import { getWrightExtensions } from "@/lib/tiptap/extensions";
 
+export type SaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
+
 export interface UseEditorOptions {
   initialContent?: string | JSONContent;
   initialTitle?: string;
-  /** When set, edits autosave to /api/documents/[id] (the database). */
+  /** When set, manual save POSTs to /api/documents/[id]. */
   documentId?: string;
-  autosaveMs?: number;
 }
 
 export function useWrightEditor(opts: UseEditorOptions = {}) {
-  const { initialContent, initialTitle, documentId, autosaveMs = 30_000 } =
-    opts;
+  const { initialContent, initialTitle, documentId } = opts;
   const [selectedText, setSelectedText] = useState("");
   const [wordCount, setWordCount] = useState(0);
   const [title, setTitle] = useState(initialTitle ?? "Untitled Document");
   const [pageSettings, setPageSettings] =
     useState<PageSettings>(DEFAULT_PAGE_SETTINGS);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   // Bumped on every transaction so toolbar active-states stay in sync.
   const [, setSelectionTick] = useState(0);
 
@@ -46,12 +47,12 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
       setSelectionTick((n) => n + 1);
     },
     onTransaction() {
-      // Keep toolbar dropdowns/active states reflecting the cursor position.
       setSelectionTick((n) => n + 1);
     },
     onUpdate({ editor }) {
       const words = editor.storage.characterCount?.words?.() ?? 0;
       setWordCount(words);
+      setSaveStatus((s) => (s === "saving" ? s : "dirty"));
     },
     onCreate({ editor }) {
       const words = editor.storage.characterCount?.words?.() ?? 0;
@@ -60,8 +61,7 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
   });
 
   // Tiptap's useEditor only reads `content` at creation time. When the editor
-  // page bootstraps an uploaded document asynchronously (sessionStorage), the
-  // editor already exists and is empty, so push the content in once it arrives.
+  // page bootstraps a document asynchronously, push the content in once it arrives.
   const appliedContentRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!editor) return;
@@ -73,74 +73,58 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
     if (appliedContentRef.current === contentKey) return;
     appliedContentRef.current = contentKey;
     editor.commands.setContent(initialContent, true);
+    // Programmatic load shouldn't mark dirty.
+    setSaveStatus("idle");
   }, [editor, initialContent]);
 
-  // Sync title when an initial title arrives asynchronously (useState's
-  // initializer only runs on first render, so a later value is otherwise lost).
+  // Sync title when an initial title arrives asynchronously.
   useEffect(() => {
     if (initialTitle === undefined) return;
     setTitle(initialTitle);
   }, [initialTitle]);
 
-  // Autosave to the database (PUT /api/documents/[id]). We debounce on edits,
-  // flush on a steady interval, and flush when the tab is hidden/closed so
-  // nothing is lost. `saveRef` lets the title effect reuse the same writer.
-  const titleRef = useRef(title);
-  titleRef.current = title;
-  const saveRef = useRef<() => Promise<void>>(async () => {});
-
+  // Mark dirty when the user changes the title.
+  const titleHydratedRef = useRef(false);
   useEffect(() => {
-    if (!editor || !documentId) return;
+    if (!titleHydratedRef.current) {
+      titleHydratedRef.current = true;
+      return;
+    }
+    setSaveStatus((s) => (s === "saving" ? s : "dirty"));
+  }, [title]);
 
-    const save = async () => {
+  // Manual save. No keepalive (it has a 64KB body limit and silently drops
+  // saves on documents larger than that — the original autosave bug).
+  const saveInflightRef = useRef<Promise<void> | null>(null);
+  const saveNow = useCallback(async (): Promise<void> => {
+    if (!editor || !documentId) return;
+    // De-dupe concurrent saves so Cmd+S spam doesn't race itself.
+    if (saveInflightRef.current) return saveInflightRef.current;
+    const run = (async () => {
+      setSaveStatus("saving");
       try {
         const html = editor.getHTML();
         const contentJson = editor.getJSON();
-        // keepalive lets the request finish even as the tab is closing.
-        await fetch(`/api/documents/${documentId}`, {
+        const res = await fetch(`/api/documents/${documentId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ html, contentJson, title: titleRef.current }),
-          keepalive: true,
+          body: JSON.stringify({ html, contentJson, title }),
         });
-      } catch {
-        // ignore
+        if (!res.ok) {
+          const msg = await res.text().catch(() => "");
+          throw new Error(msg || `Save failed (${res.status})`);
+        }
+        setSaveStatus("saved");
+      } catch (err) {
+        console.error("Save failed:", err);
+        setSaveStatus("error");
+      } finally {
+        saveInflightRef.current = null;
       }
-    };
-    saveRef.current = save;
-
-    let debounce: number | undefined;
-    const onUpdate = () => {
-      window.clearTimeout(debounce);
-      debounce = window.setTimeout(() => void save(), 1500);
-    };
-    editor.on("update", onUpdate);
-
-    const interval = window.setInterval(() => void save(), autosaveMs);
-
-    const onHide = () => {
-      if (document.visibilityState === "hidden") void save();
-    };
-    const onBeforeUnload = () => void save();
-    document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("beforeunload", onBeforeUnload);
-
-    return () => {
-      window.clearTimeout(debounce);
-      window.clearInterval(interval);
-      editor.off("update", onUpdate);
-      document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("beforeunload", onBeforeUnload);
-      void save(); // flush on unmount (e.g. navigating back to the document list)
-    };
-  }, [editor, autosaveMs, documentId]);
-
-  // Renaming the document should persist too — debounce a save on title change.
-  useEffect(() => {
-    if (!editor || !documentId) return;
-    const id = window.setTimeout(() => void saveRef.current(), 1500);
-    return () => window.clearTimeout(id);
-  }, [title, editor, documentId]);
+    })();
+    saveInflightRef.current = run;
+    return run;
+  }, [editor, documentId, title]);
 
   return {
     editor,
@@ -150,6 +134,7 @@ export function useWrightEditor(opts: UseEditorOptions = {}) {
     setTitle,
     pageSettings,
     setPageSettings,
-    saveNow: () => saveRef.current(),
+    saveStatus,
+    saveNow,
   };
 }
