@@ -10,6 +10,8 @@ import type { DocumentImportResult } from "@/hooks/useDocumentImport";
 
 type Tab = DocumentFilter;
 
+const FEATURES_ANNOUNCEMENT_VERSION = "document-saving-v1";
+
 export default function LibraryPage() {
   const router = useRouter();
 
@@ -21,11 +23,15 @@ export default function LibraryPage() {
   const [sort, setSort] = useState<DocumentSort>("updated_at");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isFeaturesOpen, setIsFeaturesOpen] = useState(false);
 
-  // Rename modal state
-  const [renamingDoc, setRenamingDoc] = useState<DocumentSummary | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const renameInputRef = useRef<HTMLInputElement>(null);
+  // Title prompt — rename existing doc or name a newly created doc
+  const [titlePrompt, setTitlePrompt] = useState<{
+    doc: DocumentSummary;
+    purpose: "rename" | "new";
+  } | null>(null);
+  const [titleValue, setTitleValue] = useState("");
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Debounce search input → query
   useEffect(() => {
@@ -56,27 +62,71 @@ export default function LibraryPage() {
     load();
   }, [load]);
 
-  // Focus rename input when modal opens
   useEffect(() => {
-    if (renamingDoc) {
-      setTimeout(() => renameInputRef.current?.focus(), 50);
+    try {
+      const seenVersion = window.localStorage.getItem("wright:features-seen");
+      if (seenVersion !== FEATURES_ANNOUNCEMENT_VERSION) {
+        setIsFeaturesOpen(true);
+      }
+    } catch {
+      setIsFeaturesOpen(true);
     }
-  }, [renamingDoc]);
+  }, []);
+
+  // Focus title input when modal opens
+  useEffect(() => {
+    if (titlePrompt) {
+      setTimeout(() => titleInputRef.current?.focus(), 50);
+    }
+  }, [titlePrompt]);
+
+  const dismissFeatures = useCallback(() => {
+    try {
+      window.localStorage.setItem(
+        "wright:features-seen",
+        FEATURES_ANNOUNCEMENT_VERSION
+      );
+    } catch {
+      // Ignore storage errors; the modal can still close for this session.
+    }
+    setIsFeaturesOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isFeaturesOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        dismissFeatures();
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [dismissFeatures, isFeaturesOpen]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
   const createBlank = useCallback(async () => {
     setBusy(true);
     try {
-      const res = await fetch("/api/documents", { method: "POST" });
-      if (!res.ok) throw new Error("Could not create document");
+      const res = await fetch("/api/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Could not create document");
+      }
       const doc = (await res.json()) as DocumentSummary;
-      router.push(`/editor/${doc.id}`);
+      if (!doc.id) throw new Error("Could not create document");
+      setTitleValue("");
+      setTitlePrompt({ doc, purpose: "new" });
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to create");
+    } finally {
       setBusy(false);
     }
-  }, [router]);
+  }, []);
 
   const openDoc = useCallback(
     (id: string) => router.push(`/editor/${id}`),
@@ -84,25 +134,52 @@ export default function LibraryPage() {
   );
 
   const startRename = useCallback((doc: DocumentSummary) => {
-    setRenamingDoc(doc);
-    setRenameValue(doc.title || "Untitled Document");
+    setTitleValue(doc.title || "Untitled Document");
+    setTitlePrompt({ doc, purpose: "rename" });
   }, []);
 
-  const submitRename = useCallback(async () => {
-    if (!renamingDoc) return;
-    const next = renameValue.trim() || "Untitled Document";
-    setRenamingDoc(null);
-    if (next === renamingDoc.title) return;
+  const closeTitlePrompt = useCallback(() => {
+    setTitlePrompt(null);
+    setTitleValue("");
+  }, []);
+
+  const openNewDocInEditor = useCallback(
+    (id: string) => {
+      closeTitlePrompt();
+      router.push(`/editor/${id}`);
+    },
+    [closeTitlePrompt, router]
+  );
+
+  const submitTitlePrompt = useCallback(async () => {
+    if (!titlePrompt) return;
+    const next = titleValue.trim() || "Untitled Document";
+    const { doc, purpose } = titlePrompt;
+
+    if (purpose === "new") {
+      if (next !== "Untitled Document") {
+        await fetch(`/api/documents/${doc.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: next }),
+        });
+      }
+      openNewDocInEditor(doc.id);
+      return;
+    }
+
+    closeTitlePrompt();
+    if (next === doc.title) return;
     setDocs((prev) =>
-      prev ? prev.map((d) => (d.id === renamingDoc.id ? { ...d, title: next } : d)) : prev
+      prev ? prev.map((d) => (d.id === doc.id ? { ...d, title: next } : d)) : prev
     );
-    await fetch(`/api/documents/${renamingDoc.id}`, {
+    await fetch(`/api/documents/${doc.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: next }),
     });
     load();
-  }, [renamingDoc, renameValue, load]);
+  }, [titlePrompt, titleValue, closeTitlePrompt, openNewDocInEditor, load]);
 
   const duplicate = useCallback(
     async (id: string) => {
@@ -205,12 +282,33 @@ export default function LibraryPage() {
             )}
           </div>
 
+          <button
+            type="button"
+            onClick={() => setIsFeaturesOpen(true)}
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded border border-neutral-300 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-600 transition hover:border-blue-300 hover:text-blue-700"
+            aria-label="Show new features"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Z" />
+              <path d="M19 16v4M17 18h4" />
+            </svg>
+            What&apos;s new
+          </button>
+
           {/* New document */}
           <button
             type="button"
             onClick={createBlank}
             disabled={busy}
-            className="ml-auto shrink-0 rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 sm:ml-0"
+            className="shrink-0 rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
           >
             New document
           </button>
@@ -225,20 +323,20 @@ export default function LibraryPage() {
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">
               Start a new document
             </h2>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-4">
               {/* Blank document card */}
               <button
                 type="button"
                 onClick={createBlank}
                 disabled={busy}
-                className="group flex w-36 flex-col overflow-hidden rounded-lg border border-neutral-300 bg-white text-left transition hover:border-blue-400 hover:shadow-paper disabled:opacity-60"
+                className="group flex h-48 w-44 flex-col overflow-hidden rounded-lg border border-neutral-300 bg-white text-left transition hover:border-blue-400 hover:shadow-paper disabled:opacity-60 sm:w-48"
               >
-                <div className="flex h-24 items-center justify-center bg-neutral-100">
-                  <div className="relative h-[52px] w-[40px] rounded-sm border-2 border-dashed border-neutral-300 bg-white group-hover:border-blue-300">
+                <div className="flex h-32 items-center justify-center bg-neutral-100">
+                  <div className="relative h-[70px] w-[54px] rounded-sm border-2 border-dashed border-neutral-300 bg-white group-hover:border-blue-300">
                     <svg
                       className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-neutral-300 group-hover:text-blue-400"
-                      width="16"
-                      height="16"
+                      width="22"
+                      height="22"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -248,9 +346,12 @@ export default function LibraryPage() {
                     </svg>
                   </div>
                 </div>
-                <div className="border-t border-neutral-200 p-2.5">
-                  <p className="text-xs font-medium text-neutral-700">
+                <div className="flex h-16 flex-col justify-center border-t border-neutral-200 px-3">
+                  <p className="text-sm font-medium text-neutral-800">
                     Blank document
+                  </p>
+                  <p className="mt-0.5 text-xs text-neutral-500">
+                    Start from scratch
                   </p>
                 </div>
               </button>
@@ -358,26 +459,44 @@ export default function LibraryPage() {
         </section>
       </main>
 
-      {/* ── Rename modal ───────────────────────────────────────────────────── */}
-      {renamingDoc && (
+      {/* ── Title modal (new doc or rename) ─────────────────────────────────── */}
+      {titlePrompt && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 backdrop-blur-sm"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setRenamingDoc(null);
+            if (e.target !== e.currentTarget) return;
+            if (titlePrompt.purpose === "new") {
+              openNewDocInEditor(titlePrompt.doc.id);
+            } else {
+              closeTitlePrompt();
+            }
           }}
         >
           <div className="w-80 rounded-lg border border-neutral-300 bg-white p-5 shadow-toast">
             <h3 className="text-sm font-semibold text-neutral-900">
-              Rename document
+              {titlePrompt.purpose === "new"
+                ? "Name your document"
+                : "Rename document"}
             </h3>
+            {titlePrompt.purpose === "new" && (
+              <p className="mt-1 text-xs text-neutral-500">
+                Give your document a title before you start writing.
+              </p>
+            )}
             <input
-              ref={renameInputRef}
+              ref={titleInputRef}
               type="text"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void submitRename();
-                if (e.key === "Escape") setRenamingDoc(null);
+                if (e.key === "Enter") void submitTitlePrompt();
+                if (e.key === "Escape") {
+                  if (titlePrompt.purpose === "new") {
+                    openNewDocInEditor(titlePrompt.doc.id);
+                  } else {
+                    closeTitlePrompt();
+                  }
+                }
               }}
               className="mt-3 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
               placeholder="Document title"
@@ -385,22 +504,30 @@ export default function LibraryPage() {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setRenamingDoc(null)}
+                onClick={() => {
+                  if (titlePrompt.purpose === "new") {
+                    openNewDocInEditor(titlePrompt.doc.id);
+                  } else {
+                    closeTitlePrompt();
+                  }
+                }}
                 className="rounded px-3 py-1.5 text-sm text-neutral-600 hover:bg-neutral-100"
               >
-                Cancel
+                {titlePrompt.purpose === "new" ? "Skip" : "Cancel"}
               </button>
               <button
                 type="button"
-                onClick={() => void submitRename()}
+                onClick={() => void submitTitlePrompt()}
                 className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
               >
-                Rename
+                {titlePrompt.purpose === "new" ? "Open document" : "Rename"}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {isFeaturesOpen && <FeaturesAnnouncement onClose={dismissFeatures} />}
     </div>
   );
 }
@@ -434,20 +561,20 @@ function ImportDocumentCard({
   const isDisabled = disabled || importing;
 
   return (
-    <div className="w-36">
+    <div className="w-44 sm:w-48">
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
         disabled={isDisabled}
-        className="group flex w-full flex-col overflow-hidden rounded-lg border border-neutral-300 bg-white text-left transition hover:border-blue-400 hover:shadow-paper disabled:opacity-60"
+        className="group flex h-48 w-full flex-col overflow-hidden rounded-lg border border-neutral-300 bg-white text-left transition hover:border-blue-400 hover:shadow-paper disabled:opacity-60"
       >
-        <div className="flex h-24 items-center justify-center bg-neutral-100">
-          <div className="relative h-[52px] w-[40px] rounded-sm border border-neutral-300 bg-white group-hover:border-blue-300">
+        <div className="flex h-32 items-center justify-center bg-neutral-100">
+          <div className="relative h-[70px] w-[54px] rounded-sm border border-neutral-300 bg-white group-hover:border-blue-300">
             {importing ? (
               <svg
                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 animate-spin text-blue-600"
-                width="16"
-                height="16"
+                width="22"
+                height="22"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -458,8 +585,8 @@ function ImportDocumentCard({
             ) : (
               <svg
                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-neutral-400 group-hover:text-blue-400"
-                width="16"
-                height="16"
+                width="22"
+                height="22"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -472,9 +599,12 @@ function ImportDocumentCard({
             )}
           </div>
         </div>
-        <div className="border-t border-neutral-200 p-2.5">
-          <p className="text-xs font-medium text-neutral-700">
+        <div className="flex h-16 flex-col justify-center border-t border-neutral-200 px-3">
+          <p className="text-sm font-medium text-neutral-800">
             {importing ? "Importing…" : "Import file"}
+          </p>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            .docx, .txt, .md, .pdf
           </p>
         </div>
       </button>
@@ -489,9 +619,6 @@ function ImportDocumentCard({
           if (file) void handleFile(file);
         }}
       />
-      <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-500">
-        .docx, .txt, .md, .pdf
-      </p>
     </div>
   );
 }
@@ -603,6 +730,116 @@ function EmptyState({
       >
         New document
       </button>
+    </div>
+  );
+}
+
+function FeaturesAnnouncement({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/35 px-4 py-6 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="features-title"
+    >
+      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-neutral-300 bg-white shadow-toast">
+        <div className="border-b border-neutral-200 bg-neutral-50 px-5 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-600">
+                New in Wright
+              </p>
+              <h2
+                id="features-title"
+                className="mt-1 text-xl font-semibold text-neutral-950"
+              >
+                Your documents now save
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded p-1 text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-700"
+              aria-label="Close new features"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="px-5 py-5">
+          <div className="flex gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded bg-blue-50 text-blue-600">
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                aria-hidden="true"
+              >
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+                <path d="M17 21v-8H7v8" />
+                <path d="M7 3v5h8" />
+              </svg>
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-900">
+                Save your documents and come back whenever
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-neutral-600">
+                Wright now keeps your documents in the library, so drafts,
+                imports, and revisions are waiting when you return.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-2 text-sm text-neutral-700 sm:grid-cols-3">
+            <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+              <p className="font-medium text-neutral-900">Recent</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                Pick up where you left off.
+              </p>
+            </div>
+            <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+              <p className="font-medium text-neutral-900">Starred</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                Keep key drafts close.
+              </p>
+            </div>
+            <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+              <p className="font-medium text-neutral-900">Trash</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                Restore removed work.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
