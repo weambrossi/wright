@@ -64,9 +64,13 @@ const LIBRARY_COLUMNS =
 const BASE_COLUMNS = "id, title, source_file_id, created_at, updated_at";
 
 function isMissingColumnError(err: { code?: string; message?: string }): boolean {
-  // Postgres 42703 = undefined_column. Supabase surfaces it via code or message.
-  if (err?.code === "42703") return true;
-  return /column .* does not exist/i.test(err?.message ?? "");
+  // Postgres 42703 = undefined_column (common on SELECT).
+  // PGRST204 = PostgREST schema cache can't find the column (common on INSERT).
+  if (err?.code === "42703" || err?.code === "PGRST204") return true;
+  const msg = err?.message ?? "";
+  if (/column .* does not exist/i.test(msg)) return true;
+  if (/Could not find the '.*' column/i.test(msg)) return true;
+  return /schema cache/i.test(msg) && /column/i.test(msg);
 }
 
 export async function listDocuments(opts: {

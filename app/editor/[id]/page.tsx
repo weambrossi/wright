@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/core";
 import { useParams, useRouter } from "next/navigation";
 import { useWrightEditor } from "@/hooks/useEditor";
@@ -162,6 +162,8 @@ export default function EditorPage() {
 
         {/* Save status indicator */}
         <SaveStatusBadge status={saveStatus} onRetry={() => void saveNow()} />
+
+        <SaveReminder saveStatus={saveStatus} />
 
         {/* Manual Save button */}
         <button
@@ -356,6 +358,47 @@ export default function EditorPage() {
 
       <ToastHost toasts={toasts} onDismiss={dismiss} />
     </div>
+  );
+}
+
+function SaveReminder({ saveStatus }: { saveStatus: SaveStatus }) {
+  const [visible, setVisible] = useState(false);
+  const saveStatusRef = useRef(saveStatus);
+  saveStatusRef.current = saveStatus;
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      const status = saveStatusRef.current;
+      if (status === "dirty" || status === "error") {
+        setVisible(true);
+      }
+    }, 3 * 60 * 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (
+      saveStatus === "saved" ||
+      saveStatus === "idle" ||
+      saveStatus === "saving"
+    ) {
+      setVisible(false);
+    }
+  }, [saveStatus]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const timeoutId = window.setTimeout(() => setVisible(false), 12 * 1000);
+    return () => window.clearTimeout(timeoutId);
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <span className="rounded bg-amber-50 px-2 py-1 text-xs font-medium text-amber-accent">
+      Don&apos;t forget to save
+    </span>
   );
 }
 
