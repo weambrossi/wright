@@ -16,7 +16,7 @@ export function getAnthropic(): Anthropic {
 
 export const MODELS = {
   haiku: "claude-haiku-4-5-20251001",
-  sonnet: "claude-sonnet-4-6",
+  sonnet: "claude-sonnet-5",
   opus: "claude-opus-4-8",
 } as const;
 
@@ -27,11 +27,11 @@ export const MODELS = {
 //  - brainstorm: open-ended creativity — strongest model
 //  - continue:   long-form prose that matches the author's voice — strongest model
 export const MODEL_BY_MODE: Record<AIMode, string> = {
-  chat: MODELS.opus,
+  chat: MODELS.sonnet,
   grammar: MODELS.haiku,
   rewrite: MODELS.sonnet,
-  brainstorm: MODELS.opus,
-  continue: MODELS.opus,
+  brainstorm: MODELS.sonnet,
+  continue: MODELS.sonnet,
 };
 
 // Fallback used if a request arrives without a recognized mode.
