@@ -34,6 +34,10 @@ interface ChatModeProps {
 const GREETING =
   "Hi — I'm Wright, your writing partner. Tell me what you're working on, attach a .docx or text file for extra context, or pick a quick action below to get started. When you highlight text first, those actions bring it into our conversation.";
 
+// localStorage flag: dims the "NEW" attention dots on the naturalness /
+// ask-questions controls once the author has tried them.
+const AI_FEATURES_HINT_KEY = "wright:ai-natural-features-seen";
+
 export function ChatMode({
   editor,
   selectedText,
@@ -75,6 +79,28 @@ export function ChatMode({
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Highlight the new naturalness/ask-questions controls with a "NEW" badge
+  // until the author has interacted with them. Tooltips stay available on
+  // hover afterward; only the attention dot is dismissed.
+  const [showFeatureBadges, setShowFeatureBadges] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(AI_FEATURES_HINT_KEY) !== "1") {
+        setShowFeatureBadges(true);
+      }
+    } catch {
+      // Ignore storage errors — the tooltips still work without the badge.
+    }
+  }, []);
+  const dismissFeatureBadges = () => {
+    setShowFeatureBadges(false);
+    try {
+      window.localStorage.setItem(AI_FEATURES_HINT_KEY, "1");
+    } catch {
+      // Non-fatal.
+    }
+  };
 
   // Keep the latest message in view as it streams.
   useEffect(() => {
@@ -374,16 +400,34 @@ export function ChatMode({
                 onChange={setWritingMode}
                 disabled={isStreaming || flowGenerating}
               />
-              <NaturalnessSelector
-                level={naturalness}
-                onChange={setNaturalness}
-                disabled={isStreaming || flowGenerating}
-              />
-              <AskQuestionsToggle
-                enabled={askQuestions}
-                onChange={setAskQuestions}
-                disabled={isStreaming || flowGenerating}
-              />
+              <FeatureHint
+                badge={showFeatureBadges}
+                title="Naturalness — new"
+                description="Choose how hard Wright works to sound less like AI: it trims stacked metaphors, explained emotions, and tidy thesis endings. Set Balanced, More natural, Raw, or keep your current style."
+              >
+                <NaturalnessSelector
+                  level={naturalness}
+                  onChange={(level) => {
+                    dismissFeatureBadges();
+                    setNaturalness(level);
+                  }}
+                  disabled={isStreaming || flowGenerating}
+                />
+              </FeatureHint>
+              <FeatureHint
+                badge={showFeatureBadges}
+                title="Ask questions — new"
+                description="On: Wright pauses to ask a focused question when missing context would change the writing, and saves your answer as story context. Off: it makes a reasonable choice, generates now, and never saves invented facts as canon."
+              >
+                <AskQuestionsToggle
+                  enabled={askQuestions}
+                  onChange={(enabled) => {
+                    dismissFeatureBadges();
+                    setAskQuestions(enabled);
+                  }}
+                  disabled={isStreaming || flowGenerating}
+                />
+              </FeatureHint>
             </div>
           </div>
           <button
@@ -404,6 +448,51 @@ export function ChatMode({
             </svg>
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Wraps a composer control with a rich hover/focus tooltip describing a new
+ * feature, plus an optional pulsing "NEW" dot to draw first-time attention.
+ * Follows the existing quick-action tooltip pattern (CSS group-hover), so it
+ * needs no portal or third-party tooltip library.
+ */
+function FeatureHint({
+  title,
+  description,
+  badge,
+  children,
+}: {
+  title: string;
+  description: string;
+  badge: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="group/feat relative">
+      {children}
+      {badge && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-2 w-2"
+        >
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-600" />
+        </span>
+      )}
+      <div
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max max-w-[min(260px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-[11px] leading-snug text-neutral-600 opacity-0 shadow-md transition-opacity group-hover/feat:opacity-100 group-focus-within/feat:opacity-100"
+      >
+        <span className="mb-0.5 flex items-center gap-1.5">
+          <span className="rounded bg-blue-50 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600">
+            New
+          </span>
+          <span className="font-medium text-neutral-800">{title}</span>
+        </span>
+        {description}
       </div>
     </div>
   );

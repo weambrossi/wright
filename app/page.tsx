@@ -10,7 +10,7 @@ import type { DocumentImportResult } from "@/hooks/useDocumentImport";
 
 type Tab = DocumentFilter;
 
-const FEATURES_ANNOUNCEMENT_VERSION = "document-saving-v1";
+const FEATURES_ANNOUNCEMENT_VERSION = "natural-writing-v1";
 
 export default function LibraryPage() {
   const router = useRouter();
@@ -756,7 +756,7 @@ function FeaturesAnnouncement({ onClose }: { onClose: () => void }) {
                 id="features-title"
                 className="mt-1 text-xl font-semibold text-neutral-950"
               >
-                Your documents now save
+                Writing that sounds less like AI
               </h2>
             </div>
             <button
@@ -792,42 +792,58 @@ function FeaturesAnnouncement({ onClose }: { onClose: () => void }) {
                 strokeWidth="1.8"
                 aria-hidden="true"
               >
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
-                <path d="M17 21v-8H7v8" />
-                <path d="M7 3v5h8" />
+                <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
+                <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
               </svg>
             </div>
             <div>
               <h3 className="text-sm font-semibold text-neutral-900">
-                Save your documents and come back whenever
+                Naturalness controls and smarter questions
               </h3>
               <p className="mt-1 text-sm leading-6 text-neutral-600">
-                Wright now keeps your documents in the library, so drafts,
-                imports, and revisions are waiting when you return.
+                The AI assistant now reduces the patterns that make prose read
+                as AI-written — stacked metaphors, explained emotions, tidy
+                thesis endings — and asks focused questions only when they’ll
+                genuinely improve the writing.
               </p>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-2 text-sm text-neutral-700 sm:grid-cols-3">
+          <div className="mt-5 grid gap-2 text-sm text-neutral-700 sm:grid-cols-2">
             <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
-              <p className="font-medium text-neutral-900">Recent</p>
+              <p className="font-medium text-neutral-900">Naturalness</p>
               <p className="mt-1 text-xs leading-5 text-neutral-500">
-                Pick up where you left off.
+                Pick Balanced, More natural, or Raw — or preserve your current
+                style.
               </p>
             </div>
             <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
-              <p className="font-medium text-neutral-900">Starred</p>
+              <p className="font-medium text-neutral-900">Ask questions</p>
               <p className="mt-1 text-xs leading-5 text-neutral-500">
-                Keep key drafts close.
+                Toggle clarification off to draft instantly, on to catch missing
+                context.
               </p>
             </div>
             <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
-              <p className="font-medium text-neutral-900">Trash</p>
+              <p className="font-medium text-neutral-900">Best choice for me</p>
               <p className="mt-1 text-xs leading-5 text-neutral-500">
-                Restore removed work.
+                Let Wright decide, or generate without answering — never saved as
+                canon.
+              </p>
+            </div>
+            <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+              <p className="font-medium text-neutral-900">Stays on canon</p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                Your answers are saved as story context, with contradictions
+                flagged first.
               </p>
             </div>
           </div>
+
+          <p className="mt-4 text-xs leading-5 text-neutral-500">
+            Open any document and switch to the AI Assistant tab to try it — hover
+            the controls beneath the message box for a quick tour.
+          </p>
 
           <div className="mt-6 flex justify-end">
             <button
