@@ -5,6 +5,7 @@ import type { Editor } from "@tiptap/react";
 import { useAI } from "@/hooks/useAI";
 import { useChatFileAttachments } from "@/hooks/useChatFileAttachments";
 import { useWritingMode } from "@/hooks/useWritingMode";
+import { useGenerationPreferences } from "@/hooks/useGenerationPreferences";
 import {
   useWritingFlow,
   type GenerationResultMeta,
@@ -119,6 +120,8 @@ export function useAIChatSession({
   // /api/writing; ordinary conversation falls back to the classic chat.
   // ---------------------------------------------------------------------
   const { mode: writingMode, setMode: setWritingMode } = useWritingMode();
+  const { naturalness, setNaturalness, askQuestions, setAskQuestions } =
+    useGenerationPreferences();
 
   // The assistant placeholder for a streaming workflow generation is tracked
   // by ref so chunk updates always hit the right message.
@@ -128,6 +131,8 @@ export function useAIChatSession({
     editor,
     documentId,
     mode: writingMode,
+    naturalness,
+    askQuestions,
     onToast,
     onAssistantStart: () => {
       setMessages((prev) => {
@@ -354,6 +359,10 @@ export function useAIChatSession({
     flow,
     writingMode,
     setWritingMode,
+    naturalness,
+    setNaturalness,
+    askQuestions,
+    setAskQuestions,
   };
 }
 

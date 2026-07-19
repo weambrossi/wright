@@ -1,6 +1,7 @@
 import type {
   ClarificationAnswer,
   ClarificationQuestion,
+  NaturalnessLevel,
   PendingWritingRequest,
   StoryContextItem,
   WritingAssumption,
@@ -8,7 +9,7 @@ import type {
 } from "./types";
 import { formatContextForModel } from "./contextRetrieval";
 
-export const WRITING_PROMPT_VERSION = "writing-workflow-v1";
+export const WRITING_PROMPT_VERSION = "writing-workflow-v2";
 
 // ---------------------------------------------------------------------------
 // Shared collaborative-writing principles (server-side only; never sent to
@@ -259,7 +260,57 @@ Theme: do not state the theme directly, explain what the reader should think, ad
 
 Watch for and avoid overused AI prose patterns (contextual warnings, not banned words): "a tapestry of", "a symphony of", "the air was thick with", "there was something about", "in that moment", "little did they know", "a mix of", "not X, but Y" constructions, three-part lists, heavy em-dash use, rhetorical questions, cosmic metaphors, shadows, echoes, storms, fire, stars, broken glass, racing hearts, clenched fists, held breath.`;
 
-export function buildGenerationSystemPrompt(mode: WritingControlMode): string {
+// ---------------------------------------------------------------------------
+// Natural prose rules — appended to the generation prompt (never replacing
+// the existing prompt) according to the author's naturalness setting.
+// ---------------------------------------------------------------------------
+
+export const NATURAL_PROSE_RULES = `NATURAL PROSE RULES
+
+- Prefer concrete observations over constant metaphor.
+- Do not attach a simile or poetic comparison to every action.
+- Allow some actions and expressions to remain uninterpreted.
+- Trust the reader to infer emotions from dialogue, silence, pacing, and behavior.
+- Avoid explaining an emotion immediately after showing it physically.
+- Use contrast structures such as "not X, but Y" sparingly.
+- Vary sentence structure instead of repeatedly using balanced or mirrored phrasing.
+- Do not make every sentence polished, thematic, or quotable.
+- Let dialogue include interruptions, repetition, hesitation, incomplete thoughts, misunderstandings, blunt answers, and mundane details when appropriate.
+- Characters should sometimes answer questions directly.
+- Do not preserve tension artificially by making every character evasive.
+- Avoid relying on generic dramatic gestures (gripping chairs, raised palms, weak legs, looking away, refusing to touch an object).
+- Use mannerisms that come from established character context.
+- Include details that are specific to the characters, setting, history, or current situation.
+- Allow tonal variation. A tense scene may still contain irritation, awkwardness, practical concerns, accidental humor, or ordinary behavior.
+- Do not explain the emotional meaning of the scene in the final sentence.
+- End on an action, image, line of dialogue, unresolved choice, or concrete detail when more natural.
+- Preserve intentional literary language, but avoid stacking multiple literary devices in the same paragraph.
+- Match the author's existing prose rather than automatically making it more lyrical.`;
+
+export function naturalnessInstructions(level: NaturalnessLevel): string {
+  switch (level) {
+    case "preserve_current_style":
+      return "";
+    case "balanced":
+      return `${NATURAL_PROSE_RULES}
+
+NATURALNESS LEVEL: balanced. Apply the natural prose rules with a light hand — reduce repetition, predictability, and over-polishing, but keep the literary register the author's manuscript establishes.`;
+    case "natural_understated":
+      return `${NATURAL_PROSE_RULES}
+
+NATURALNESS LEVEL: more natural and understated. Apply the natural prose rules firmly. Favor restraint: plain observation over interpretation, at most one deliberate literary device per paragraph, room for silence and mundane detail. Never announce what a moment means.`;
+    case "raw_conversational":
+      return `${NATURAL_PROSE_RULES}
+
+NATURALNESS LEVEL: raw and conversational. Apply the natural prose rules strictly. Write plainly, as a person recounting events would: short unbalanced sentences are fine, dialogue can be blunt, interrupted, or trivial, and paragraphs may end without weight. Avoid metaphor unless it is clearly the character's own way of thinking.`;
+  }
+}
+
+export function buildGenerationSystemPrompt(
+  mode: WritingControlMode,
+  naturalness: NaturalnessLevel = "balanced"
+): string {
+  const naturalRules = naturalnessInstructions(naturalness);
   return `${COLLABORATION_PRINCIPLES}
 
 ${modeInstructions(mode)}
@@ -267,7 +318,7 @@ ${modeInstructions(mode)}
 You now have the author's approved context. Write the requested passage.
 
 ${WRITING_QUALITY_RULES}
-
+${naturalRules ? `\n${naturalRules}\n` : ""}
 OUTPUT RULES
 - Return ONLY the requested prose. No preamble, no meta-commentary, no clarification questions, no context summaries, no explanation of choices, no moral or conclusion unless requested.
 - Preserve the author's requested length, style, point of view, and tense.
@@ -342,6 +393,68 @@ function describeDocumentAction(request: PendingWritingRequest): string {
     default:
       return "DESTINATION: the document editor. Your prose will be inserted at the cursor position.";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Step 6: post-generation AI-pattern review
+// ---------------------------------------------------------------------------
+
+export function buildDraftReviewSystemPrompt(
+  naturalness: NaturalnessLevel
+): string {
+  const strictness =
+    naturalness === "raw_conversational"
+      ? "Be strict: revise any passage where these patterns appear."
+      : naturalness === "natural_understated"
+      ? "Be firm: revise passages where these patterns are clearly present."
+      : "Be conservative: revise only where a pattern is unmistakable and hurts the prose.";
+
+  return `You are an editor reviewing a freshly generated fiction draft for prose patterns that read as obviously AI-generated. This is an internal revision pass — the author never sees your analysis, only the final prose.
+
+CHECK FOR:
+- More than one major metaphor or simile in a short paragraph
+- Repeated uses of "like," "as though," or "as if"
+- Repeated "not X, but Y" constructions
+- A physical action followed by an explicit explanation of the emotion it shows
+- Generic dramatic gestures not tied to the specific character (gripping chairs, raised palms, weak legs, looking away, refusing to touch an object)
+- Dialogue where every response is indirect or evasive
+- Consecutive sentences with highly polished parallel structures
+- An ending that states the emotional thesis of the scene
+- Excessive emotional intensity with no ordinary scene details
+
+${strictness}
+
+REVISION RULES:
+- Revise ONLY where needed. Keep every sentence that does not show a pattern exactly as written.
+- Do not flatten the prose or remove the author's voice. Intentional literary language stays.
+- Never add new story facts, events, or dialogue meaning. Only reshape how existing content is expressed.
+- Preserve length approximately, point of view, tense, paragraph breaks, and formatting.
+
+Respond with ONLY a JSON object:
+{"needsRevision":true|false,"patternsFound":["short description of each pattern found"],"revisedDraft":"the full revised draft — required when needsRevision is true, omit otherwise"}
+
+If the draft is clean, respond {"needsRevision":false,"patternsFound":[]}.`;
+}
+
+export function buildDraftReviewUserPrompt(input: {
+  draft: string;
+  nearby?: string;
+  styleContext?: string;
+}): string {
+  return `THE DRAFT TO REVIEW:
+"""
+${input.draft}
+"""
+${
+  input.styleContext?.trim()
+    ? `\nTHE AUTHOR'S STYLE PREFERENCES (respect these; do not "correct" deliberate choices):\n${input.styleContext.trim()}\n`
+    : ""
+}${
+  input.nearby?.trim()
+    ? `\nTHE AUTHOR'S OWN PROSE NEAR THE INSERTION POINT (the voice to match):\n"""\n${input.nearby.trim()}\n"""\n`
+    : ""
+}
+Review for AI-typical prose patterns. JSON only.`;
 }
 
 export function summarizeAssumptions(assumptions: WritingAssumption[]): string {

@@ -37,6 +37,77 @@ export const WRITING_CONTROL_MODES: {
 export const DEFAULT_WRITING_MODE: WritingControlMode = "ask_me_first";
 
 // ---------------------------------------------------------------------------
+// Naturalness (natural-prose control)
+// ---------------------------------------------------------------------------
+
+/**
+ * How aggressively Wright reduces AI-typical prose patterns (metaphor
+ * stacking, explained emotions, "not X, but Y" constructions, over-polished
+ * sentences) in generated fiction.
+ */
+export type NaturalnessLevel =
+  | "preserve_current_style"
+  | "balanced"
+  | "natural_understated"
+  | "raw_conversational";
+
+export const NATURALNESS_LEVELS: {
+  id: NaturalnessLevel;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "preserve_current_style",
+    label: "Preserve current style",
+    description:
+      "No naturalness adjustments. Wright writes exactly as it would today, matching your manuscript.",
+  },
+  {
+    id: "balanced",
+    label: "Balanced",
+    description:
+      "Reduces obvious AI patterns — stacked metaphors, explained emotions, mirrored phrasing — while keeping intentional literary language.",
+  },
+  {
+    id: "natural_understated",
+    label: "More natural and understated",
+    description:
+      "Prefers concrete observation over metaphor, lets actions go uninterpreted, and allows mundane detail and tonal variation.",
+  },
+  {
+    id: "raw_conversational",
+    label: "Raw and conversational",
+    description:
+      "Plain, unpolished prose. Interruptions, blunt answers, awkwardness, and ordinary detail over crafted sentences.",
+  },
+];
+
+export const DEFAULT_NATURALNESS: NaturalnessLevel = "balanced";
+
+/** Whether the author wants clarification questions before generation. */
+export const DEFAULT_ASK_QUESTIONS = true;
+
+// ---------------------------------------------------------------------------
+// Context evaluation summary (structured internal decision shape)
+// ---------------------------------------------------------------------------
+
+/**
+ * Flat summary of the pre-generation context check, derived from the model's
+ * evaluation output. Used by callers that need a simple decision shape rather
+ * than the full discriminated union.
+ */
+export interface ContextEvaluation {
+  hasEnoughContext: boolean;
+  shouldAskQuestion: boolean;
+  reason?: string;
+  missingInformation?: string;
+  question?: string;
+  suggestedAnswers?: string[];
+  contextCategory?: string;
+  permanence?: "permanent" | "scene" | "temporary";
+}
+
+// ---------------------------------------------------------------------------
 // Story context
 // ---------------------------------------------------------------------------
 
@@ -283,6 +354,10 @@ export interface GenerationMetadata {
   model: string;
   promptVersion: string;
   timestamp: string;
+  /** Naturalness level used for this generation, when provided. */
+  naturalness?: NaturalnessLevel;
+  /** Whether the post-generation AI-pattern review revised the draft. */
+  draftReviewed?: boolean;
 }
 
 // ---------------------------------------------------------------------------

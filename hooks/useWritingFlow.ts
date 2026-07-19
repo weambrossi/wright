@@ -12,6 +12,7 @@ import type {
   ClarificationAnswerSource,
   ClarificationQuestion,
   DocumentGenerationAction,
+  NaturalnessLevel,
   PendingWritingRequest,
   StoryContextConflict,
   SuggestedAnswer,
@@ -87,6 +88,10 @@ interface UseWritingFlowOptions {
   editor: Editor | null;
   documentId: string;
   mode: WritingControlMode;
+  /** Naturalness preference, sent with every generation. */
+  naturalness?: NaturalnessLevel;
+  /** When false, Wright never asks clarification questions. */
+  askQuestions?: boolean;
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
   /** Assistant-tab generation streams through these into the chat transcript. */
   onAssistantStart: () => void;
@@ -117,6 +122,8 @@ export function useWritingFlow(options: UseWritingFlowOptions) {
     editor,
     documentId,
     mode,
+    naturalness = "balanced",
+    askQuestions = true,
     onToast,
     onAssistantStart,
     onAssistantChunk,
@@ -271,7 +278,7 @@ export function useWritingFlow(options: UseWritingFlowOptions) {
       const res = await fetch(`/api/writing/requests/${req.id}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ manuscriptText: manuscriptText() }),
+        body: JSON.stringify({ manuscriptText: manuscriptText(), naturalness }),
         signal: ac.signal,
       });
       if (!res.ok || !res.body) {
@@ -340,6 +347,7 @@ export function useWritingFlow(options: UseWritingFlowOptions) {
   }, [
     insertIntoDocument,
     manuscriptText,
+    naturalness,
     onAssistantChunk,
     onAssistantDone,
     onAssistantError,
@@ -384,6 +392,7 @@ export function useWritingFlow(options: UseWritingFlowOptions) {
             writingControlMode: mode,
             manuscriptText: manuscriptText(),
             conversation: opts.conversation.slice(-12),
+            askQuestions,
           }),
         });
 
@@ -416,6 +425,7 @@ export function useWritingFlow(options: UseWritingFlowOptions) {
     },
     [
       applyResponse,
+      askQuestions,
       documentId,
       editor,
       generate,
@@ -507,6 +517,43 @@ export function useWritingFlow(options: UseWritingFlowOptions) {
       submittingRef.current = false;
     }
   }, [applyResponse, manuscriptText, panel]);
+
+  /**
+   * "Generate without answering": abandon the open question(s) and generate
+   * immediately. Unanswered questions become flagged assumptions server-side;
+   * nothing is saved as confirmed story context.
+   */
+  const generateWithoutAnswering = useCallback(async (): Promise<void> => {
+    const req = requestRef.current;
+    if (!req || submittingRef.current) return;
+    submittingRef.current = true;
+    setPanel((prev) =>
+      prev.kind === "question" || prev.kind === "options"
+        ? { ...prev, busy: true, error: undefined }
+        : prev
+    );
+    try {
+      const result = await flowFetch(
+        `/api/writing/requests/${req.id}/proceed`,
+        { method: "POST", body: JSON.stringify({}) }
+      );
+      setActiveRequest(result.request);
+      // Bypass the review panel — the author explicitly asked to generate.
+      submittingRef.current = false;
+      await generate();
+      return;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Couldn't start generating.";
+      setPanel((prev) =>
+        prev.kind === "question" || prev.kind === "options"
+          ? { ...prev, busy: false, error: message }
+          : prev
+      );
+    } finally {
+      submittingRef.current = false;
+    }
+  }, [generate, setActiveRequest]);
 
   /** From the skip-options state: ask for a fresh set of options. */
   const moreOptions = useCallback(async (): Promise<void> => {
@@ -746,6 +793,7 @@ export function useWritingFlow(options: UseWritingFlowOptions) {
     start,
     submitAnswer,
     skip,
+    generateWithoutAnswering,
     moreOptions,
     leaveUnspecified,
     resolveConflict,

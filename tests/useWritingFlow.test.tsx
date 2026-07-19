@@ -110,7 +110,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function setupHook(editor: Editor | null) {
+function setupHook(
+  editor: Editor | null,
+  extra: Partial<Parameters<typeof useWritingFlow>[0]> = {}
+) {
   const callbacks = makeCallbacks();
   const hook = renderHook(() =>
     useWritingFlow({
@@ -118,6 +121,7 @@ function setupHook(editor: Editor | null) {
       documentId: "doc-1",
       mode: "ask_me_first",
       ...callbacks,
+      ...extra,
     })
   );
   return { hook, callbacks };
@@ -374,6 +378,122 @@ describe("useWritingFlow", () => {
     });
     expect(hook.result.current.panel.kind).toBe("idle");
     expect(fake.insertions).toHaveLength(0);
+  });
+
+  it("sends the ask-questions preference with start and naturalness with generate", async () => {
+    const { editor } = makeFakeEditor("Draft text");
+    const { hook } = setupHook(editor, {
+      naturalness: "natural_understated",
+      askQuestions: false,
+    });
+
+    const bodies: Record<string, unknown> = {};
+    fetchMock.mockImplementation(
+      async (url: RequestInfo | URL, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes("?documentId=")) return jsonResponse({ request: null });
+        if (u.endsWith("/api/writing/requests")) {
+          bodies.start = JSON.parse(String(init?.body));
+          return jsonResponse({
+            response: {
+              type: "generation_ready",
+              requestId: "req-1",
+              contextUsed: [],
+              assumptions: [],
+              questions: [],
+              answers: {},
+            },
+            request: makeRequest({ status: "ready_to_generate" }),
+          });
+        }
+        if (u.endsWith("/generate")) {
+          bodies.generate = JSON.parse(String(init?.body));
+          return streamResponse(["Done."]);
+        }
+        throw new Error(`Unexpected fetch: ${u}`);
+      }
+    );
+
+    await act(async () => {
+      await hook.result.current.start({
+        prompt: "Write the scene",
+        destination: "assistant_tab",
+        conversation: [],
+      });
+    });
+
+    await waitFor(() => expect(bodies.generate).toBeTruthy());
+    expect((bodies.start as { askQuestions: boolean }).askQuestions).toBe(false);
+    expect((bodies.generate as { naturalness: string }).naturalness).toBe(
+      "natural_understated"
+    );
+  });
+
+  it("generates without answering: proceeds past the question and streams", async () => {
+    const { editor } = makeFakeEditor("Draft text");
+    const { hook, callbacks } = setupHook(editor);
+
+    fetchMock.mockImplementation(async (url: RequestInfo | URL) => {
+      const u = String(url);
+      if (u.includes("?documentId=")) return jsonResponse({ request: null });
+      if (u.endsWith("/api/writing/requests")) {
+        return jsonResponse({
+          response: {
+            type: "clarification_required",
+            requestId: "req-1",
+            reason: "Missing emotion",
+            question,
+          },
+          request: makeRequest({
+            status: "awaiting_answer",
+            questions: [question],
+          }),
+        });
+      }
+      if (u.endsWith("/proceed")) {
+        return jsonResponse({
+          response: {
+            type: "generation_ready",
+            requestId: "req-1",
+            contextUsed: [],
+            assumptions: [
+              {
+                id: "skip-assumption-0-0",
+                description: "The author generated without answering.",
+                importance: "major",
+              },
+            ],
+            questions: [],
+            answers: {},
+          },
+          request: makeRequest({
+            status: "ready_to_generate",
+            questions: [question],
+          }),
+        });
+      }
+      if (u.endsWith("/generate")) {
+        return streamResponse(["Naomi ", "shrugged."]);
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+
+    await act(async () => {
+      await hook.result.current.start({
+        prompt: "Write the scene",
+        destination: "assistant_tab",
+        conversation: [],
+      });
+    });
+    expect(hook.result.current.panel.kind).toBe("question");
+
+    await act(async () => {
+      await hook.result.current.generateWithoutAnswering();
+    });
+
+    await waitFor(() => expect(callbacks.onAssistantDone).toHaveBeenCalled());
+    expect(callbacks.onAssistantDone.mock.calls[0][0]).toBe("Naomi shrugged.");
+    expect(hook.result.current.panel.kind).toBe("idle");
   });
 
   it("reopens a pending question flow on mount", async () => {

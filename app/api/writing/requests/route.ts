@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
       },
       manuscriptText: body.manuscriptText,
       conversation: body.conversation,
+      askQuestions: body.askQuestions,
     });
 
     return NextResponse.json({ response, request });

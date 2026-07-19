@@ -4,6 +4,8 @@ import {
   contradictionOutputSchema,
   skipOptionsOutputSchema,
   contextClassificationSchema,
+  draftReviewOutputSchema,
+  generateRequestSchema,
   startWritingRequestSchema,
   extractJson,
 } from "@/lib/writing/schemas";
@@ -124,6 +126,51 @@ describe("contextClassificationSchema", () => {
   });
 });
 
+describe("draftReviewOutputSchema", () => {
+  it("accepts a clean-draft verdict", () => {
+    const parsed = draftReviewOutputSchema.safeParse({
+      needsRevision: false,
+      patternsFound: [],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts a revision with patterns and defaults patternsFound", () => {
+    const parsed = draftReviewOutputSchema.safeParse({
+      needsRevision: true,
+      revisedDraft: "He gripped the chair.",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.patternsFound).toEqual([]);
+  });
+
+  it("rejects non-boolean verdicts", () => {
+    expect(
+      draftReviewOutputSchema.safeParse({ needsRevision: "maybe" }).success
+    ).toBe(false);
+  });
+});
+
+describe("generateRequestSchema", () => {
+  it("defaults naturalness to balanced", () => {
+    const parsed = generateRequestSchema.safeParse({
+      requestId: "req-1",
+      manuscriptText: "",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.naturalness).toBe("balanced");
+  });
+
+  it("rejects unknown naturalness levels", () => {
+    expect(
+      generateRequestSchema.safeParse({
+        requestId: "req-1",
+        naturalness: "shakespearean",
+      }).success
+    ).toBe(false);
+  });
+});
+
 describe("startWritingRequestSchema", () => {
   it("validates a document-editor request", () => {
     const parsed = startWritingRequestSchema.safeParse({
@@ -135,6 +182,20 @@ describe("startWritingRequestSchema", () => {
       manuscriptText: "Once upon a time…",
     });
     expect(parsed.success).toBe(true);
+    // Clarification questions default to enabled.
+    if (parsed.success) expect(parsed.data.askQuestions).toBe(true);
+  });
+
+  it("accepts an explicit askQuestions=false", () => {
+    const parsed = startWritingRequestSchema.safeParse({
+      documentId: "doc-1",
+      prompt: "Continue the scene",
+      destination: "assistant_tab",
+      writingControlMode: "draft_freely",
+      askQuestions: false,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.askQuestions).toBe(false);
   });
 
   it("rejects an unknown writing mode", () => {

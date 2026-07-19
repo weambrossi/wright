@@ -151,6 +151,7 @@ import {
   skipQuestion,
   resolveConflict,
   cancelRequest,
+  proceedWithoutAnswering,
 } from "@/lib/writing/service";
 
 function modelReply(json: unknown) {
@@ -229,6 +230,87 @@ describe("startWritingFlow", () => {
     );
     const { response } = await startWritingFlow(startInput());
     expect(response.type).toBe("not_a_writing_request");
+  });
+
+  it("continues normally when context evaluation fails, instead of blocking", async () => {
+    state.createMock.mockRejectedValue(new Error("model down"));
+    const { request, response } = await startWritingFlow(startInput());
+    expect(response.type).toBe("generation_ready");
+    expect(request.status).toBe("ready_to_generate");
+  });
+});
+
+describe("startWritingFlow with questions disabled", () => {
+  it("converts a clarification into a flagged assumption and generates immediately", async () => {
+    state.createMock.mockResolvedValueOnce(clarificationReply);
+    const { request, response } = await startWritingFlow({
+      ...startInput(),
+      askQuestions: false,
+    });
+    expect(response.type).toBe("generation_ready");
+    expect(request.status).toBe("ready_to_generate");
+    expect(request.questions).toHaveLength(0);
+    // The would-be question became a flagged major assumption…
+    expect(request.assumptions).toHaveLength(1);
+    expect(request.assumptions[0].importance).toBe("major");
+    expect(request.assumptions[0].description).toContain(
+      "How does Naomi feel when she sees Daniel again?"
+    );
+    // …and nothing was saved as confirmed story context.
+    expect(state.contextItems).toHaveLength(0);
+  });
+
+  it("evaluates in draft_freely so the model prefers choices over questions", async () => {
+    state.createMock.mockResolvedValueOnce(readyReply);
+    await startWritingFlow({ ...startInput(), askQuestions: false });
+    const systemPrompt = state.createMock.mock.calls[0][0].system as string;
+    expect(systemPrompt).toContain("draft_freely");
+  });
+
+  it("still falls back to plain chat for ordinary conversation", async () => {
+    state.createMock.mockResolvedValueOnce(
+      modelReply({ decision: "not_a_writing_request" })
+    );
+    const { response } = await startWritingFlow({
+      ...startInput(),
+      askQuestions: false,
+    });
+    expect(response.type).toBe("not_a_writing_request");
+  });
+});
+
+describe("proceedWithoutAnswering", () => {
+  it("marks unanswered questions as assumptions and goes straight to ready", async () => {
+    state.createMock.mockResolvedValueOnce(clarificationReply);
+    const { request } = await startWritingFlow(startInput());
+    expect(request.status).toBe("awaiting_answer");
+
+    const { request: updated, response } = await proceedWithoutAnswering(
+      request.id
+    );
+    expect(response.type).toBe("generation_ready");
+    if (response.type === "generation_ready") {
+      // Empty question list signals the client to generate immediately.
+      expect(response.questions).toHaveLength(0);
+    }
+    expect(updated.status).toBe("ready_to_generate");
+    expect(updated.assumptions.some((a) => a.importance === "major")).toBe(true);
+    expect(
+      updated.assumptions.some((a) =>
+        a.description.includes("How does Naomi feel when she sees Daniel again?")
+      )
+    ).toBe(true);
+    // Nothing invented was stored as story context.
+    expect(state.contextItems).toHaveLength(0);
+  });
+
+  it("rejects cancelled requests", async () => {
+    state.createMock.mockResolvedValueOnce(clarificationReply);
+    const { request } = await startWritingFlow(startInput());
+    await cancelRequest(request.id);
+    await expect(proceedWithoutAnswering(request.id)).rejects.toThrow(
+      /no longer active/
+    );
   });
 });
 

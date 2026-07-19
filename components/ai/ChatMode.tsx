@@ -13,6 +13,10 @@ import { Markdown } from "./Markdown";
 import { ChatStreamCursor, ChatTypingIndicator } from "./ChatTypingIndicator";
 import { ClarificationPanel } from "@/components/writing/ClarificationPanel";
 import { WritingModeSelector } from "@/components/writing/WritingModeSelector";
+import {
+  AskQuestionsToggle,
+  NaturalnessSelector,
+} from "@/components/writing/NaturalnessSelector";
 import type { GenerationResultMeta } from "@/hooks/useWritingFlow";
 
 export type { AIAction };
@@ -60,6 +64,10 @@ export function ChatMode({
     flow,
     writingMode,
     setWritingMode,
+    naturalness,
+    setNaturalness,
+    askQuestions,
+    setAskQuestions,
   } = session;
   // While the clarification flow is active, the panel owns the interaction.
   const flowActive = flow.panel.kind !== "idle";
@@ -350,7 +358,7 @@ export function ChatMode({
               aria-describedby={inputHint ? "chat-input-hint" : undefined}
               className="w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none"
             />
-            <div className="flex items-center gap-2 px-1.5 pb-1.5">
+            <div className="flex flex-wrap items-center gap-1.5 px-1.5 pb-1.5">
               <button
                 type="button"
                 onClick={openFilePicker}
@@ -366,9 +374,16 @@ export function ChatMode({
                 onChange={setWritingMode}
                 disabled={isStreaming || flowGenerating}
               />
-              <span className="hidden min-w-0 truncate text-[10.5px] text-neutral-400 sm:inline">
-                Controls how much Wright asks before writing story details.
-              </span>
+              <NaturalnessSelector
+                level={naturalness}
+                onChange={setNaturalness}
+                disabled={isStreaming || flowGenerating}
+              />
+              <AskQuestionsToggle
+                enabled={askQuestions}
+                onChange={setAskQuestions}
+                disabled={isStreaming || flowGenerating}
+              />
             </div>
           </div>
           <button

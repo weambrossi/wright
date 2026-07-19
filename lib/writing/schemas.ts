@@ -47,6 +47,13 @@ export const writingControlModeSchema = z.enum([
   "draft_freely",
 ]);
 
+export const naturalnessLevelSchema = z.enum([
+  "preserve_current_style",
+  "balanced",
+  "natural_understated",
+  "raw_conversational",
+]);
+
 export const suggestedAnswerSchema = z.object({
   id: z.string().min(1),
   label: z.string().min(1),
@@ -163,6 +170,20 @@ export const contextClassificationSchema = z.object({
 });
 export type ContextClassification = z.infer<typeof contextClassificationSchema>;
 
+/**
+ * Post-generation AI-pattern review. The model reports whether the draft
+ * shows AI-typical prose patterns and, when it does, returns a light-touch
+ * revision. Deterministic validation happens in reviewDraftForAIPatterns.
+ */
+export const draftReviewOutputSchema = z.object({
+  needsRevision: z.boolean(),
+  /** Which patterns were found, for logging/analytics — never shown as prose. */
+  patternsFound: z.array(z.string()).default([]),
+  /** Full revised draft. Required when needsRevision is true. */
+  revisedDraft: z.string().optional(),
+});
+export type DraftReviewOutput = z.infer<typeof draftReviewOutputSchema>;
+
 // --------------------------------------------------------------------------
 // API request schemas (what the client sends)
 // --------------------------------------------------------------------------
@@ -197,6 +218,12 @@ export const startWritingRequestSchema = z.object({
       })
     )
     .default([]),
+  /**
+   * When false, Wright never pauses to ask clarification questions: it makes
+   * reasonable choices, flags them as assumptions, and generates immediately.
+   * Assumptions made this way are never saved as confirmed story context.
+   */
+  askQuestions: z.boolean().default(true),
 });
 export type StartWritingRequestInput = z.infer<typeof startWritingRequestSchema>;
 
@@ -235,8 +262,16 @@ export type ResolveConflictInput = z.infer<typeof resolveConflictRequestSchema>;
 export const generateRequestSchema = z.object({
   requestId: z.string().min(1),
   manuscriptText: z.string().default(""),
+  /** Naturalness level is a client preference sent with each generation. */
+  naturalness: naturalnessLevelSchema.default("balanced"),
 });
 export type GenerateInput = z.infer<typeof generateRequestSchema>;
+
+/** Force a request past its open question ("Generate without answering"). */
+export const proceedRequestSchema = z.object({
+  requestId: z.string().min(1),
+});
+export type ProceedInput = z.infer<typeof proceedRequestSchema>;
 
 export const storyContextCreateSchema = z.object({
   documentId: z.string().min(1),

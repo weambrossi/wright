@@ -49,9 +49,41 @@ export function ClarificationPanel({ flow }: ClarificationPanelProps) {
 
 function StartingState() {
   return (
-    <div className="flex items-center gap-2 px-3.5 py-3 text-[13px] text-neutral-600">
-      <Spinner />
-      Checking your story context before writing…
+    <div className="px-3.5 py-4">
+      <BusyIndicator
+        text="Checking your story context…"
+        subtext="Wright is reading your manuscript and stored context before writing."
+      />
+    </div>
+  );
+}
+
+/** Prominent loading block — the workflow steps take a few seconds each. */
+function BusyIndicator({ text, subtext }: { text: string; subtext?: string }) {
+  return (
+    <div
+      className="flex items-center gap-3 rounded-lg border border-neutral-200 bg-white px-3 py-2.5"
+      role="status"
+      aria-live="polite"
+    >
+      <svg
+        className="h-6 w-6 shrink-0 animate-spin text-amber-accent"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        aria-hidden="true"
+      >
+        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+      </svg>
+      <div>
+        <div className="text-[13px] font-medium text-neutral-800">{text}</div>
+        {subtext && (
+          <div className="mt-0.5 text-[11px] leading-snug text-neutral-500">
+            {subtext}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -107,21 +139,21 @@ function QuestionState({
 
   return (
     <div className="px-3.5 py-3">
-      <PanelHeading
-        title="Help me understand before I write"
-        subtitle="Answering this will help the writing match your intent instead of making assumptions."
-      />
-
-      <div className="mt-2 flex items-start justify-between gap-2">
-        <p className="text-[13px] font-medium leading-snug text-neutral-800">
-          {question.question}
-        </p>
+      <div className="flex items-start justify-between gap-2">
+        <PanelHeading
+          title="Help me understand before I write"
+          subtitle="Answering this will help the writing match your intent instead of making assumptions."
+        />
         <ProgressBadge
           number={panel.questionNumber}
           remaining={panel.remainingEstimate}
           isEdit={panel.isEdit}
         />
       </div>
+
+      <p className="mt-2 text-[13px] font-medium leading-snug text-neutral-800">
+        {question.question}
+      </p>
       {question.whyItMatters && (
         <p className="mt-1 text-[11px] leading-snug text-neutral-500">
           {question.whyItMatters}
@@ -189,29 +221,47 @@ function QuestionState({
 
       {panel.error && <ErrorLine text={panel.error} />}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <PrimaryButton
-          onClick={submitCustom}
-          disabled={
-            panel.busy || (!custom.trim() && !(multi && selectedIds.length > 0))
-          }
-          busy={panel.busy}
-        >
-          Continue
-        </PrimaryButton>
-        <GhostButton onClick={() => void flow.skip()} disabled={panel.busy}>
-          Skip
-        </GhostButton>
-        {panel.isEdit && (
-          <GhostButton onClick={flow.backToReview} disabled={panel.busy}>
-            Back
+      {panel.busy ? (
+        <div className="mt-2">
+          <BusyIndicator
+            text="Adding context…"
+            subtext="Saving your answer and checking whether Wright needs anything else."
+          />
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <PrimaryButton
+            onClick={submitCustom}
+            disabled={!custom.trim() && !(multi && selectedIds.length > 0)}
+          >
+            Continue
+          </PrimaryButton>
+          <GhostButton onClick={() => void flow.skip()}>Skip</GhostButton>
+          <GhostButton
+            title="Wright picks the most fitting answer itself and writes with it as a clearly labeled temporary assumption — never saved as story canon."
+            onClick={() =>
+              void flow.submitAnswer(
+                question.id,
+                "You choose — make the best choice for this detail, keep it consistent with everything established, and flag it as an assumption. (temporary assumption — not confirmed canon)",
+                "temporary_ai_assumption"
+              )
+            }
+          >
+            Make the best choice for me
           </GhostButton>
-        )}
-        <div className="flex-1" />
-        <GhostButton onClick={() => void flow.cancel()} disabled={panel.busy}>
-          Cancel
-        </GhostButton>
-      </div>
+          <GhostButton
+            title="Skip all remaining questions and write now. Wright makes reasonable choices and flags them as assumptions — nothing is saved as story canon."
+            onClick={() => void flow.generateWithoutAnswering()}
+          >
+            Generate without answering
+          </GhostButton>
+          {panel.isEdit && (
+            <GhostButton onClick={flow.backToReview}>Back</GhostButton>
+          )}
+          <div className="flex-1" />
+          <GhostButton onClick={() => void flow.cancel()}>Cancel</GhostButton>
+        </div>
+      )}
     </div>
   );
 }
@@ -239,10 +289,19 @@ function ProgressBadge({
   const label = isEdit
     ? "Editing answer"
     : remaining != null && remaining > 0
-    ? `Question ${number} · ~${remaining} more`
+    ? `Question ${number} of about ${number + remaining}`
     : `Question ${number}`;
   return (
-    <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-neutral-500 ring-1 ring-neutral-200">
+    <span
+      title={
+        isEdit
+          ? "You're editing a previous answer"
+          : remaining != null && remaining > 0
+          ? `Wright expects about ${remaining} more question${remaining === 1 ? "" : "s"} after this one`
+          : "This may be the only question"
+      }
+      className="shrink-0 whitespace-nowrap rounded-full bg-white px-2.5 py-1 text-[10.5px] font-semibold text-amber-accent ring-1 ring-amber-accent/40"
+    >
       {label}
     </span>
   );
@@ -320,44 +379,62 @@ function OptionsState({
 
       {panel.error && <ErrorLine text={panel.error} />}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <PrimaryButton
-          onClick={() =>
-            void flow.submitAnswer(
-              question.id,
-              currentAnswer(),
-              selected ? "selected_option" : "author"
-            )
-          }
-          disabled={panel.busy || !currentAnswer()}
-          busy={panel.busy}
-        >
-          Use this answer
-        </PrimaryButton>
-        <GhostButton
-          title="Wright will write with this as a clearly labeled temporary assumption. It won't become story canon unless you accept it later."
-          onClick={() =>
-            void flow.submitAnswer(
-              question.id,
-              `${currentAnswer()} (temporary assumption — not confirmed canon)`,
-              "temporary_ai_assumption"
-            )
-          }
-          disabled={panel.busy || !currentAnswer()}
-        >
-          Use as temporary assumption
-        </GhostButton>
-        <GhostButton onClick={() => void flow.leaveUnspecified()} disabled={panel.busy}>
-          Leave unspecified
-        </GhostButton>
-        <GhostButton onClick={() => void flow.moreOptions()} disabled={panel.busy}>
-          Different options
-        </GhostButton>
-        <div className="flex-1" />
-        <GhostButton onClick={() => void flow.cancel()} disabled={panel.busy}>
-          Cancel
-        </GhostButton>
-      </div>
+      {panel.busy ? (
+        <div className="mt-2">
+          <BusyIndicator
+            text="Getting more information…"
+            subtext="Wright is working on this before continuing."
+          />
+        </div>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <PrimaryButton
+            onClick={() =>
+              void flow.submitAnswer(
+                question.id,
+                currentAnswer(),
+                selected ? "selected_option" : "author"
+              )
+            }
+            disabled={!currentAnswer()}
+          >
+            Use this answer
+          </PrimaryButton>
+          <GhostButton
+            title="Wright will write with this as a clearly labeled temporary assumption. It won't become story canon unless you accept it later."
+            onClick={() =>
+              void flow.submitAnswer(
+                question.id,
+                `${currentAnswer()} (temporary assumption — not confirmed canon)`,
+                "temporary_ai_assumption"
+              )
+            }
+            disabled={!currentAnswer()}
+          >
+            Use as temporary assumption
+          </GhostButton>
+          <GhostButton
+            title="Wright drafts freely for this detail, makes a reasonable choice itself, and flags it as an assumption you can review."
+            onClick={() =>
+              void flow.submitAnswer(
+                question.id,
+                "You choose — make a reasonable creative decision for this detail, keep it consistent with everything established, and flag it as an assumption. (temporary assumption — not confirmed canon)",
+                "temporary_ai_assumption"
+              )
+            }
+          >
+            You choose
+          </GhostButton>
+          <GhostButton onClick={() => void flow.leaveUnspecified()}>
+            Leave unspecified
+          </GhostButton>
+          <GhostButton onClick={() => void flow.moreOptions()}>
+            Different options
+          </GhostButton>
+          <div className="flex-1" />
+          <GhostButton onClick={() => void flow.cancel()}>Cancel</GhostButton>
+        </div>
+      )}
     </div>
   );
 }

@@ -29,6 +29,7 @@ import { listStoryContext } from "./storyContextStore";
 import type {
   ClarificationCategory,
   ClarificationQuestion,
+  ContextEvaluation,
   PendingWritingRequest,
   StoryContextCategory,
   StoryContextConflict,
@@ -170,7 +171,17 @@ export async function evaluateRequest(input: {
     return { output: { decision: "ready", assumptions: [] } };
   }
 
-  const question: ClarificationQuestion = {
+  return { output, question: generateClarificationQuestion(output) };
+}
+
+/**
+ * Turn the model's raw clarification decision into a server-id'd question the
+ * client can render. Questions always allow a custom answer.
+ */
+export function generateClarificationQuestion(
+  output: Extract<EvaluationOutput, { decision: "needs_clarification" }>
+): ClarificationQuestion {
+  return {
     id: randomUUID(),
     question: output.question.question,
     whyItMatters: output.question.whyItMatters,
@@ -184,7 +195,48 @@ export async function evaluateRequest(input: {
     })),
     allowCustomAnswer: true,
   };
-  return { output, question };
+}
+
+/**
+ * Pre-generation context check, exposed as a flat ContextEvaluation decision
+ * shape. Wraps evaluateRequest; a "not_a_writing_request" decision maps to
+ * hasEnoughContext=true / shouldAskQuestion=false so callers never block.
+ */
+export async function evaluateMissingContext(
+  input: Parameters<typeof evaluateRequest>[0]
+): Promise<{ evaluation: ContextEvaluation; result: EvaluationResult }> {
+  const result = await evaluateRequest(input);
+  return { evaluation: toContextEvaluation(result), result };
+}
+
+export function toContextEvaluation(result: EvaluationResult): ContextEvaluation {
+  const { output, question } = result;
+  if (output.decision === "needs_clarification" && question) {
+    return {
+      hasEnoughContext: false,
+      shouldAskQuestion: true,
+      reason: output.reason,
+      missingInformation: output.reason,
+      question: question.question,
+      suggestedAnswers: (question.suggestedAnswers ?? []).map((s) => s.label),
+      contextCategory: question.category,
+      permanence: scopeToPermanence(fallbackScope(question.category)),
+    };
+  }
+  return { hasEnoughContext: true, shouldAskQuestion: false };
+}
+
+function scopeToPermanence(
+  scope: StoryContextScope
+): "permanent" | "scene" | "temporary" {
+  switch (scope) {
+    case "story":
+      return "permanent";
+    case "scene":
+      return "scene";
+    case "request":
+      return "temporary";
+  }
 }
 
 export const MAX_QUESTIONS_PER_REQUEST = 5;
@@ -235,6 +287,9 @@ export async function checkAnswerContradictions(input: {
     };
   });
 }
+
+/** Preferred name for the contradiction gate: does this answer conflict with canon? */
+export const detectContextContradiction = checkAnswerContradictions;
 
 function sourceLabel(item: StoryContextItem): string {
   switch (item.source) {
@@ -306,6 +361,9 @@ export async function classifyAnswerForStorage(input: {
     };
   }
 }
+
+/** Preferred name for answer classification: file an answer into story context. */
+export const classifyContextAnswer = classifyAnswerForStorage;
 
 export function fallbackCategory(
   category: ClarificationCategory

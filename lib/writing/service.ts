@@ -4,6 +4,7 @@ import {
   evaluateRequest,
   generateSkipOptions,
   loadRelevantContext,
+  type EvaluationResult,
 } from "./orchestrator";
 import {
   createWritingRequest,
@@ -24,6 +25,7 @@ import type {
   ClarificationQuestion,
   ConflictResolutionAction,
   PendingWritingRequest,
+  StoryContextItem,
   WritingAssistantResponse,
 } from "./types";
 
@@ -53,7 +55,14 @@ export async function startWritingFlow(input: {
   create: Omit<CreateWritingRequestInput, "retrievedContextIds">;
   manuscriptText: string;
   conversation: { role: "user" | "assistant"; content: string }[];
+  /**
+   * When false, Wright never pauses to ask: clarification decisions are
+   * converted into flagged assumptions and generation proceeds immediately.
+   * Those assumptions are never saved as confirmed story context.
+   */
+  askQuestions?: boolean;
 }): Promise<{ request: PendingWritingRequest; response: WritingAssistantResponse }> {
+  const askQuestions = input.askQuestions ?? true;
   const { items, manuscript, nearby } = await loadRelevantContext({
     documentId: input.create.documentId,
     prompt: input.create.originalPrompt,
@@ -66,13 +75,34 @@ export async function startWritingFlow(input: {
     retrievedContextIds: items.map((i) => i.id),
   });
 
-  const { output, question } = await evaluateRequest({
-    request,
+  let { output, question } = await evaluateSafely({
+    // With questions disabled, evaluate as draft_freely so the model prefers
+    // reasonable choices over clarification in the first place.
+    request: askQuestions
+      ? request
+      : { ...request, writingControlMode: "draft_freely" },
     contextItems: items,
     manuscript,
     nearby,
     conversation: input.conversation,
   });
+
+  if (askQuestions === false && output.decision === "needs_clarification") {
+    // Convert the would-be question into a flagged assumption; never block.
+    output = {
+      decision: "ready",
+      assumptions: [
+        {
+          description: `Proceeded without asking: ${output.reason}. Wright made a reasonable choice for "${output.question.question}" — not saved as story canon.`,
+          importance: "major",
+        },
+      ],
+    };
+    question = undefined;
+    trackWritingEvent("questions_disabled_generation", {
+      requestId: request.id,
+    });
+  }
 
   if (output.decision === "not_a_writing_request") {
     request = await updateWritingRequest(request.id, { status: "completed" });
@@ -125,6 +155,23 @@ export async function startWritingFlow(input: {
       answers: {},
     },
   };
+}
+
+/**
+ * Context evaluation must never block the author: if the model call fails,
+ * treat the request as ready and let generation continue normally.
+ */
+async function evaluateSafely(
+  input: Parameters<typeof evaluateRequest>[0]
+): Promise<EvaluationResult> {
+  try {
+    return await evaluateRequest(input);
+  } catch {
+    trackWritingEvent("evaluation_failed_fallback", {
+      requestId: input.request.id,
+    });
+    return { output: { decision: "ready", assumptions: [] } };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -225,28 +272,8 @@ async function persistAnswer(
   // Temporary assumptions are labeled on the request but are NOT stored as
   // permanent canon unless the author later accepts them via the context UI.
   if (answer.source !== "temporary_ai_assumption") {
-    const classification = await classifyAnswerForStorage({
-      question,
-      answerText,
-      prompt: request.originalPrompt,
-    });
-    const item = await upsertAnswerContext({
-      documentId: request.documentId,
-      category: classification.category,
-      scope: classification.scope,
-      content: classification.canonicalStatement,
-      characterNames: classification.characterNames,
-      source: "author_answer",
-      sourceQuestion: question.question,
-      sourceRequestId: request.id,
-    });
+    const item = await saveContextAnswer({ request, question, answerText });
     savedContextByQuestion[question.id] = item.id;
-    trackWritingEvent("context_saved", {
-      requestId: request.id,
-      contextId: item.id,
-      category: classification.category,
-      scope: classification.scope,
-    });
   }
 
   return updateWritingRequest(request.id, {
@@ -254,6 +281,43 @@ async function persistAnswer(
     savedContextByQuestion,
     conflicts: [],
   });
+}
+
+/**
+ * Classify an approved author answer and save it into the existing story
+ * context store (idempotent per request+question). Durable facts land with
+ * scope "story"; scene moods stay scoped to the scene; one-off style asks
+ * stay scoped to the request, so temporary details never silently become
+ * permanent canon.
+ */
+export async function saveContextAnswer(input: {
+  request: PendingWritingRequest;
+  question: ClarificationQuestion;
+  answerText: string;
+}): Promise<StoryContextItem> {
+  const { request, question, answerText } = input;
+  const classification = await classifyAnswerForStorage({
+    question,
+    answerText,
+    prompt: request.originalPrompt,
+  });
+  const item = await upsertAnswerContext({
+    documentId: request.documentId,
+    category: classification.category,
+    scope: classification.scope,
+    content: classification.canonicalStatement,
+    characterNames: classification.characterNames,
+    source: "author_answer",
+    sourceQuestion: question.question,
+    sourceRequestId: request.id,
+  });
+  trackWritingEvent("context_saved", {
+    requestId: request.id,
+    contextId: item.id,
+    category: classification.category,
+    scope: classification.scope,
+  });
+  return item;
 }
 
 /** Re-evaluate: does the model need another question, or can it write? */
@@ -268,7 +332,7 @@ async function advanceFlow(
     manuscriptText,
   });
 
-  const { output, question } = await evaluateRequest({
+  const { output, question } = await evaluateSafely({
     request,
     contextItems: items,
     manuscript,
@@ -360,6 +424,53 @@ export async function skipQuestion(input: {
       requestId: request.id,
       questionId: question.id,
       options,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Proceed: "Generate without answering"
+// ---------------------------------------------------------------------------
+
+/**
+ * The author chose to generate without answering the open question(s).
+ * Unanswered questions become flagged major assumptions — Wright makes a
+ * reasonable choice for each, but nothing is saved as confirmed story
+ * context. The request goes straight to ready_to_generate.
+ */
+export async function proceedWithoutAnswering(
+  requestId: string
+): Promise<{ request: PendingWritingRequest; response: WritingAssistantResponse }> {
+  let request = await requireRequest(requestId);
+  assertRequestOpen(request);
+
+  const unanswered = request.questions.filter((q) => !request.answers[q.id]);
+  const newAssumptions = unanswered.map((q, i) => ({
+    id: `skip-assumption-${request.questions.indexOf(q)}-${i}`,
+    description: `The author generated without answering "${q.question}". Wright will make a reasonable choice — not saved as story canon.`,
+    importance: "major" as const,
+  }));
+
+  request = await updateWritingRequest(request.id, {
+    status: "ready_to_generate",
+    assumptions: [...request.assumptions, ...newAssumptions],
+    conflicts: [],
+  });
+  trackWritingEvent("generated_without_answering", {
+    requestId: request.id,
+    unansweredCount: unanswered.length,
+  });
+
+  return {
+    request,
+    response: {
+      type: "generation_ready",
+      requestId: request.id,
+      contextUsed: request.retrievedContextIds,
+      assumptions: request.assumptions,
+      // Empty question list signals the client to generate immediately.
+      questions: [],
+      answers: {},
     },
   };
 }

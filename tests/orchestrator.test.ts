@@ -13,8 +13,11 @@ vi.mock("@/lib/anthropic", () => ({
 
 import {
   evaluateRequest,
+  evaluateMissingContext,
   checkAnswerContradictions,
+  detectContextContradiction,
   classifyAnswerForStorage,
+  classifyContextAnswer,
   generateSkipOptions,
   fallbackScope,
   MAX_QUESTIONS_PER_REQUEST,
@@ -169,6 +172,89 @@ describe("evaluateRequest", () => {
       })
     ).rejects.toThrow(/invalid structured response/);
     expect(createMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("evaluateMissingContext", () => {
+  it("asks a question when a major character motivation is missing", async () => {
+    createMock.mockResolvedValueOnce(
+      modelReply({
+        decision: "needs_clarification",
+        reason: "Marcus's motivation in this scene is unknown",
+        question: {
+          question: "What is Marcus actually hiding from Elena in this scene?",
+          whyItMatters:
+            "It decides whether his dialogue reads as fear, guilt, confusion, or manipulation.",
+          category: "character_motivation",
+          answerType: "single_choice",
+          suggestedAnswers: [
+            { label: "He knows nothing about the letter" },
+            { label: "He read it and is lying" },
+          ],
+        },
+        remainingQuestionCount: 0,
+      })
+    );
+    const { evaluation } = await evaluateMissingContext({
+      request: makeRequest(),
+      contextItems: [],
+      manuscript: "",
+      nearby: "",
+      conversation: [],
+    });
+    expect(evaluation.hasEnoughContext).toBe(false);
+    expect(evaluation.shouldAskQuestion).toBe(true);
+    expect(evaluation.question).toContain("hiding from Elena");
+    expect(evaluation.missingInformation).toContain("motivation");
+    expect(evaluation.suggestedAnswers).toContain("He read it and is lying");
+    expect(evaluation.contextCategory).toBe("character_motivation");
+    expect(evaluation.permanence).toBe("permanent");
+  });
+
+  it("reports enough context (no question) for a well-specified request", async () => {
+    createMock.mockResolvedValueOnce(
+      modelReply({ decision: "ready", assumptions: [] })
+    );
+    const { evaluation } = await evaluateMissingContext({
+      request: makeRequest(),
+      contextItems: [],
+      manuscript: "",
+      nearby: "",
+      conversation: [],
+    });
+    expect(evaluation).toEqual({
+      hasEnoughContext: true,
+      shouldAskQuestion: false,
+    });
+  });
+
+  it("maps scene-scoped categories to scene permanence", async () => {
+    createMock.mockResolvedValueOnce(
+      modelReply({
+        decision: "needs_clarification",
+        reason: "Missing mood",
+        question: {
+          question: "How does Marcus feel right now?",
+          category: "character_emotion",
+          answerType: "short_text",
+        },
+      })
+    );
+    const { evaluation } = await evaluateMissingContext({
+      request: makeRequest(),
+      contextItems: [],
+      manuscript: "",
+      nearby: "",
+      conversation: [],
+    });
+    expect(evaluation.permanence).toBe("scene");
+  });
+});
+
+describe("required reusable function names", () => {
+  it("exposes classifyContextAnswer and detectContextContradiction", () => {
+    expect(classifyContextAnswer).toBe(classifyAnswerForStorage);
+    expect(detectContextContradiction).toBe(checkAnswerContradictions);
   });
 });
 

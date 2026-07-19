@@ -19,7 +19,14 @@ export type WritingAnalyticsEvent =
   | "generation_inserted"
   | "generation_rejected"
   | "generation_regenerated"
-  | "pending_request_cancelled";
+  | "pending_request_cancelled"
+  | "evaluation_failed_fallback"
+  | "questions_disabled_generation"
+  | "generated_without_answering"
+  | "naturalness_selected"
+  | "ask_questions_toggled"
+  | "draft_review_applied"
+  | "draft_review_skipped";
 
 type SafeValue = string | number | boolean | undefined;
 

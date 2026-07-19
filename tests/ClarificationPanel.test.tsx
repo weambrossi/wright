@@ -32,6 +32,7 @@ function makeFlow(
     start: vi.fn(),
     submitAnswer: vi.fn(),
     skip: vi.fn(),
+    generateWithoutAnswering: vi.fn(),
     moreOptions: vi.fn(),
     leaveUnspecified: vi.fn(),
     resolveConflict: vi.fn(),
@@ -73,7 +74,16 @@ describe("ClarificationPanel — question state", () => {
       screen.getByText("How does Naomi feel when she sees Daniel again?")
     ).toBeVisible();
     expect(screen.getByText(/tone of the reunion/i)).toBeVisible();
-    expect(screen.getByText("Question 1 · ~1 more")).toBeVisible();
+    expect(screen.getByText("Question 1 of about 2")).toBeVisible();
+  });
+
+  it("shows a prominent loading state while the next step is prepared", () => {
+    render(<ClarificationPanel flow={makeFlow({ ...questionPanel, busy: true })} />);
+    expect(screen.getByRole("status")).toHaveTextContent(/adding context/i);
+    // Actions are replaced by the loading indicator while busy.
+    expect(
+      screen.queryByRole("button", { name: "Continue" })
+    ).not.toBeInTheDocument();
   });
 
   it("submits a suggested answer on click", async () => {
@@ -119,6 +129,28 @@ describe("ClarificationPanel — question state", () => {
     expect(flow.skip).toHaveBeenCalled();
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(flow.cancel).toHaveBeenCalled();
+  });
+
+  it("offers a visible 'Make the best choice for me' option as a temporary assumption", async () => {
+    const flow = makeFlow(questionPanel);
+    render(<ClarificationPanel flow={flow} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Make the best choice for me" })
+    );
+    expect(flow.submitAnswer).toHaveBeenCalledWith(
+      "q1",
+      expect.stringContaining("temporary assumption"),
+      "temporary_ai_assumption"
+    );
+  });
+
+  it("offers a visible 'Generate without answering' option", async () => {
+    const flow = makeFlow(questionPanel);
+    render(<ClarificationPanel flow={flow} />);
+    await userEvent.click(
+      screen.getByRole("button", { name: "Generate without answering" })
+    );
+    expect(flow.generateWithoutAnswering).toHaveBeenCalled();
   });
 
   it("shows a back button when editing an existing answer", () => {
@@ -182,6 +214,17 @@ describe("ClarificationPanel — skip options state", () => {
     expect(flow.submitAnswer).toHaveBeenCalledWith(
       "q1",
       expect.stringContaining("temporary assumption"),
+      "temporary_ai_assumption"
+    );
+  });
+
+  it("lets Wright choose freely as a flagged temporary assumption", async () => {
+    const flow = makeFlow(optionsPanel);
+    render(<ClarificationPanel flow={flow} />);
+    await userEvent.click(screen.getByRole("button", { name: "You choose" }));
+    expect(flow.submitAnswer).toHaveBeenCalledWith(
+      "q1",
+      expect.stringContaining("You choose"),
       "temporary_ai_assumption"
     );
   });
