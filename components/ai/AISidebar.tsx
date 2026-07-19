@@ -15,6 +15,7 @@ interface AISidebarProps {
   closeDirection?: "right" | "down";
   // A ribbon AI tile was clicked — seeds the chat with that action.
   trigger?: { action: AIAction; nonce: number } | null;
+  onOpenStoryContext?: () => void;
 }
 
 export function AISidebar({
@@ -25,6 +26,7 @@ export function AISidebar({
   onClose,
   closeDirection = "right",
   trigger,
+  onOpenStoryContext,
 }: AISidebarProps) {
   return (
     <div className="flex h-full flex-col border-l border-neutral-300 bg-neutral-50">
@@ -32,6 +34,15 @@ export function AISidebar({
         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-neutral-500">
           Wright AI
         </div>
+        {onOpenStoryContext && (
+          <button
+            type="button"
+            onClick={onOpenStoryContext}
+            className="rounded border border-neutral-300 px-2 py-1 text-[11px] font-medium text-neutral-600 hover:bg-neutral-100"
+          >
+            Story context
+          </button>
+        )}
         {onClose && (
           <button
             type="button"

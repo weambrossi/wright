@@ -1,10 +1,19 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { useAI } from "@/hooks/useAI";
 import { useChatFileAttachments } from "@/hooks/useChatFileAttachments";
+import { useWritingMode } from "@/hooks/useWritingMode";
+import {
+  useWritingFlow,
+  type GenerationResultMeta,
+} from "@/hooks/useWritingFlow";
 import type { ChatMessage } from "@/lib/prompts";
+import type {
+  DocumentGenerationAction,
+  WritingDestination,
+} from "@/lib/writing/types";
 import {
   buildChatUserContent,
   chatUserPreview,
@@ -18,6 +27,8 @@ export type { ChatFileAttachment };
 export interface DisplayChatMessage extends ChatMessage {
   userPreview?: string;
   attachedFiles?: Pick<ChatFileAttachment, "name" | "truncated">[];
+  /** Present when the message was produced by the writing workflow. */
+  writing?: GenerationResultMeta;
 }
 
 interface ActionDef {
@@ -77,11 +88,13 @@ export const DEFAULT_CHAT_PLACEHOLDER =
 
 interface UseAIChatSessionOptions {
   editor: Editor | null;
+  documentId: string;
   onToast: (msg: string, kind?: "success" | "error" | "info") => void;
 }
 
 export function useAIChatSession({
   editor,
+  documentId,
   onToast,
 }: UseAIChatSessionOptions) {
   const { run, cancel, isStreaming } = useAI();
@@ -100,6 +113,58 @@ export function useAIChatSession({
     clearFiles,
     addFiles,
   } = useChatFileAttachments(onToast);
+
+  // ---------------------------------------------------------------------
+  // Context-grounded writing workflow. Writing requests are routed through
+  // /api/writing; ordinary conversation falls back to the classic chat.
+  // ---------------------------------------------------------------------
+  const { mode: writingMode, setMode: setWritingMode } = useWritingMode();
+
+  // The assistant placeholder for a streaming workflow generation is tracked
+  // by ref so chunk updates always hit the right message.
+  const assistantSlotRef = useRef<number | null>(null);
+
+  const flow = useWritingFlow({
+    editor,
+    documentId,
+    mode: writingMode,
+    onToast,
+    onAssistantStart: () => {
+      setMessages((prev) => {
+        assistantSlotRef.current = prev.length;
+        return [...prev, { role: "assistant", content: "" }];
+      });
+    },
+    onAssistantChunk: (accumulated) => {
+      setMessages((prev) => {
+        const idx = assistantSlotRef.current;
+        if (idx == null || idx >= prev.length) return prev;
+        const next = [...prev];
+        next[idx] = { ...next[idx], content: accumulated };
+        return next;
+      });
+    },
+    onAssistantDone: (final, meta) => {
+      setMessages((prev) => {
+        const idx = assistantSlotRef.current;
+        if (idx == null || idx >= prev.length) return prev;
+        const next = [...prev];
+        next[idx] = { role: "assistant", content: final, writing: meta };
+        return next;
+      });
+      assistantSlotRef.current = null;
+    },
+    onAssistantError: () => {
+      setMessages((prev) => {
+        const idx = assistantSlotRef.current;
+        if (idx != null && idx < prev.length && prev[idx].content === "") {
+          return prev.filter((_, i) => i !== idx);
+        }
+        return prev;
+      });
+      assistantSlotRef.current = null;
+    },
+  });
 
   const applyAction = useCallback(
     (action: AIAction, selectedText: string) => {
@@ -140,12 +205,47 @@ export function useAIChatSession({
     if (selection) setDismissedSelection(selection);
   }, []);
 
+  /** Classic multi-turn chat streaming (grammar talk, brainstorming, etc.). */
+  const runLegacyChat = useCallback(
+    async (history: ChatMessage[]) => {
+      setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+      const documentContent = editor
+        ? editorJsonToAIText(editor.getJSON())
+        : "";
+      await run(
+        { mode: "chat", messages: history, documentContent },
+        {
+          onChunk: (_chunk, accumulated) => {
+            setMessages((prev) => {
+              const next = [...prev];
+              next[next.length - 1] = {
+                role: "assistant",
+                content: accumulated,
+              };
+              return next;
+            });
+          },
+          onError: () => {
+            onToast("Wright couldn't respond — please try again.", "error");
+            setMessages((prev) => {
+              const next = [...prev];
+              if (next[next.length - 1]?.content === "") next.pop();
+              return next;
+            });
+          },
+        }
+      );
+    },
+    [editor, onToast, run]
+  );
+
   const send = useCallback(async (selectedText = "") => {
     const typed = input.trim();
     const selectionContext = getSelectionContext(selectedText);
     if (
       (!typed && !selectionContext && fileAttachments.length === 0) ||
-      isStreaming
+      isStreaming ||
+      flow.panel.kind !== "idle"
     ) {
       return;
     }
@@ -173,63 +273,63 @@ export function useAIChatSession({
       { role: "user" as const, content },
     ];
 
+    // Requests seeded from "Continue" or "Rewrite" write into the document at
+    // the preserved cursor/selection; everything else answers in the chat.
+    const isDocumentAction =
+      activeAction === "continue" || activeAction === "rewrite";
+    const destination: WritingDestination = isDocumentAction
+      ? "document_editor"
+      : "assistant_tab";
+    const documentAction: DocumentGenerationAction | undefined =
+      activeAction === "continue"
+        ? "continue"
+        : activeAction === "rewrite"
+        ? "replace_selection"
+        : undefined;
+
     setMessages([
       ...messages,
       { role: "user", content, userPreview, attachedFiles },
-      { role: "assistant", content: "" },
     ]);
     setInput("");
     setAttachment(null);
     setActiveAction(null);
     clearFiles();
 
-    const documentContent = editor ? editorJsonToAIText(editor.getJSON()) : "";
-
-    await run(
-      {
-        mode: "chat",
-        messages: history,
-        documentContent,
-      },
-      {
-        onChunk: (_chunk, accumulated) => {
-          setMessages((prev) => {
-            const next = [...prev];
-            next[next.length - 1] = { role: "assistant", content: accumulated };
-            return next;
-          });
-        },
-        onError: () => {
-          onToast("Wright couldn't respond — please try again.", "error");
-          setMessages((prev) => {
-            const next = [...prev];
-            if (next[next.length - 1]?.content === "") next.pop();
-            return next;
-          });
-        },
-      }
-    );
+    // Route through the context-grounded writing workflow first. If the
+    // server decides this is ordinary conversation, fall back to plain chat.
+    const outcome = await flow.start({
+      prompt: content,
+      destination,
+      documentAction,
+      selectedText: selectionContext ?? undefined,
+      conversation: history.slice(0, -1),
+    });
+    if (outcome === "fallback") {
+      await runLegacyChat(history);
+    }
   }, [
+    activeAction,
     clearFiles,
-    editor,
     fileAttachments,
+    flow,
     getSelectionContext,
     input,
     isStreaming,
     messages,
-    onToast,
-    run,
+    runLegacyChat,
   ]);
 
   const clearChat = useCallback(() => {
     cancel();
+    void flow.cancel();
     setMessages([]);
     setInput("");
     setAttachment(null);
     setDismissedSelection(null);
     setActiveAction(null);
     clearFiles();
-  }, [cancel, clearFiles]);
+  }, [cancel, clearFiles, flow]);
 
   return {
     messages,
@@ -250,6 +350,10 @@ export function useAIChatSession({
     applyAction,
     send,
     clearChat,
+    // Writing workflow surface
+    flow,
+    writingMode,
+    setWritingMode,
   };
 }
 

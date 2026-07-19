@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import {
   CHAT_ACTIONS,
@@ -11,6 +11,9 @@ import {
 } from "@/hooks/useAIChatSession";
 import { Markdown } from "./Markdown";
 import { ChatStreamCursor, ChatTypingIndicator } from "./ChatTypingIndicator";
+import { ClarificationPanel } from "@/components/writing/ClarificationPanel";
+import { WritingModeSelector } from "@/components/writing/WritingModeSelector";
+import type { GenerationResultMeta } from "@/hooks/useWritingFlow";
 
 export type { AIAction };
 
@@ -54,7 +57,13 @@ export function ChatMode({
     dismissSelectionContext,
     send,
     clearChat,
+    flow,
+    writingMode,
+    setWritingMode,
   } = session;
+  // While the clarification flow is active, the panel owns the interaction.
+  const flowActive = flow.panel.kind !== "idle";
+  const flowGenerating = flow.panel.kind === "generating";
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -125,7 +134,9 @@ export function ChatMode({
             {messages.map((m, i) => {
               const isUser = m.role === "user";
               const streamingThis =
-                isStreaming && i === messages.length - 1 && !isUser;
+                (isStreaming || flowGenerating) &&
+                i === messages.length - 1 &&
+                !isUser;
               return (
                 <div
                   key={i}
@@ -157,15 +168,17 @@ export function ChatMode({
                       </>
                     )}
                     {!isUser && m.content && !streamingThis && (
-                      <div className="mt-2 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => insertIntoDoc(m.content)}
-                          className="text-[11px] text-blue-600 hover:text-blue-800"
-                        >
-                          Insert into document
-                        </button>
-                      </div>
+                      <AssistantMessageActions
+                        content={m.content}
+                        writing={m.writing}
+                        onInsert={() => insertIntoDoc(m.content)}
+                        onRegenerate={
+                          m.writing
+                            ? () => void flow.regenerate(m.writing!.requestId)
+                            : undefined
+                        }
+                        onToast={onToast}
+                      />
                     )}
                   </div>
                 </div>
@@ -213,7 +226,7 @@ export function ChatMode({
                   <button
                     type="button"
                     onClick={() => seedAction(a.id)}
-                    disabled={isStreaming}
+                    disabled={isStreaming || flowActive}
                     aria-label={`${a.label}: ${a.description}`}
                     aria-pressed={isActive}
                     className={[
@@ -289,6 +302,10 @@ export function ChatMode({
           </p>
         )}
 
+        {/* Clarification workflow — always directly above the text input,
+            never rendered as a chat bubble or document text. */}
+        <ClarificationPanel flow={flow} />
+
         <div className="flex items-end gap-2">
           <input
             ref={fileInputRef}
@@ -318,6 +335,7 @@ export function ChatMode({
           <textarea
             ref={textareaRef}
             value={input}
+            disabled={flowActive}
             onChange={(e) => {
               setInput(e.target.value);
               if (activeAction) setActiveAction(null);
@@ -329,9 +347,13 @@ export function ChatMode({
               }
             }}
             rows={isFull ? 3 : 2}
-            placeholder={inputPlaceholder}
+            placeholder={
+              flowActive
+                ? "Answer the question above to continue…"
+                : inputPlaceholder
+            }
             aria-describedby={inputHint ? "chat-input-hint" : undefined}
-            className="flex-1 resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
+            className="flex-1 resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-neutral-50"
           />
           <button
             type="button"
@@ -339,6 +361,7 @@ export function ChatMode({
             disabled={
               isStreaming ||
               parsingFiles ||
+              flowActive ||
               (!input.trim() && !selectionContext && fileAttachments.length === 0)
             }
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
@@ -350,7 +373,105 @@ export function ChatMode({
             </svg>
           </button>
         </div>
+
+        {/* Writing behavior selector — compact, always visible with the input */}
+        <div className="mt-1.5 flex items-center gap-2">
+          <WritingModeSelector
+            mode={writingMode}
+            onChange={setWritingMode}
+            disabled={isStreaming || flowGenerating}
+          />
+          <span className="hidden text-[10.5px] text-neutral-400 sm:inline">
+            Controls how much Wright asks before writing story details.
+          </span>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function AssistantMessageActions({
+  content,
+  writing,
+  onInsert,
+  onRegenerate,
+  onToast,
+}: {
+  content: string;
+  writing?: GenerationResultMeta;
+  onInsert: () => void;
+  onRegenerate?: () => void;
+  onToast: (msg: string, kind?: "success" | "error" | "info") => void;
+}) {
+  const [showDetails, setShowDetails] = useState(false);
+
+  return (
+    <div className="mt-2">
+      <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+        {writing && (
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(content).then(
+                () => onToast("Copied.", "success"),
+                () => onToast("Couldn't copy.", "error")
+              );
+            }}
+            className="text-[11px] text-blue-600 hover:text-blue-800"
+          >
+            Copy
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onInsert}
+          className="text-[11px] text-blue-600 hover:text-blue-800"
+        >
+          Insert into document
+        </button>
+        {onRegenerate && (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className="text-[11px] text-blue-600 hover:text-blue-800"
+          >
+            Regenerate
+          </button>
+        )}
+        {writing && (
+          <button
+            type="button"
+            onClick={() => setShowDetails((s) => !s)}
+            aria-expanded={showDetails}
+            className="text-[11px] text-neutral-400 hover:text-neutral-600"
+          >
+            {showDetails ? "Hide details" : "Context used"}
+          </button>
+        )}
+      </div>
+      {writing && showDetails && (
+        <div className="mt-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-[11px] leading-snug text-neutral-600">
+          <div>
+            Written in{" "}
+            <span className="font-medium">
+              {writing.mode.replace(/_/g, " ")}
+            </span>{" "}
+            mode using {writing.contextCount} stored context item
+            {writing.contextCount === 1 ? "" : "s"} and {writing.answerCount}{" "}
+            of your answers.
+          </div>
+          {writing.assumptions.length > 0 && (
+            <ul className="mt-1 list-disc pl-4">
+              {writing.assumptions.map((a) => (
+                <li key={a.id}>
+                  {a.importance === "major" ? "Major assumption: " : "Assumed: "}
+                  {a.description}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
