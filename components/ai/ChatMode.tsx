@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import {
   CHAT_ACTIONS,
@@ -11,6 +11,13 @@ import {
 } from "@/hooks/useAIChatSession";
 import { Markdown } from "./Markdown";
 import { ChatStreamCursor, ChatTypingIndicator } from "./ChatTypingIndicator";
+import { ClarificationPanel } from "@/components/writing/ClarificationPanel";
+import { WritingModeSelector } from "@/components/writing/WritingModeSelector";
+import {
+  AskQuestionsToggle,
+  NaturalnessSelector,
+} from "@/components/writing/NaturalnessSelector";
+import type { GenerationResultMeta } from "@/hooks/useWritingFlow";
 
 export type { AIAction };
 
@@ -26,6 +33,10 @@ interface ChatModeProps {
 
 const GREETING =
   "Hi — I'm Wright, your writing partner. Tell me what you're working on, attach a .docx or text file for extra context, or pick a quick action below to get started. When you highlight text first, those actions bring it into our conversation.";
+
+// localStorage flag: dims the "NEW" attention dots on the naturalness /
+// ask-questions controls once the author has tried them.
+const AI_FEATURES_HINT_KEY = "wright:ai-natural-features-seen";
 
 export function ChatMode({
   editor,
@@ -54,10 +65,42 @@ export function ChatMode({
     dismissSelectionContext,
     send,
     clearChat,
+    flow,
+    writingMode,
+    setWritingMode,
+    naturalness,
+    setNaturalness,
+    askQuestions,
+    setAskQuestions,
   } = session;
+  // While the clarification flow is active, the panel owns the interaction.
+  const flowActive = flow.panel.kind !== "idle";
+  const flowGenerating = flow.panel.kind === "generating";
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Highlight the new naturalness/ask-questions controls with a "NEW" badge
+  // until the author has interacted with them. Tooltips stay available on
+  // hover afterward; only the attention dot is dismissed.
+  const [showFeatureBadges, setShowFeatureBadges] = useState(false);
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(AI_FEATURES_HINT_KEY) !== "1") {
+        setShowFeatureBadges(true);
+      }
+    } catch {
+      // Ignore storage errors — the tooltips still work without the badge.
+    }
+  }, []);
+  const dismissFeatureBadges = () => {
+    setShowFeatureBadges(false);
+    try {
+      window.localStorage.setItem(AI_FEATURES_HINT_KEY, "1");
+    } catch {
+      // Non-fatal.
+    }
+  };
 
   // Keep the latest message in view as it streams.
   useEffect(() => {
@@ -125,7 +168,9 @@ export function ChatMode({
             {messages.map((m, i) => {
               const isUser = m.role === "user";
               const streamingThis =
-                isStreaming && i === messages.length - 1 && !isUser;
+                (isStreaming || flowGenerating) &&
+                i === messages.length - 1 &&
+                !isUser;
               return (
                 <div
                   key={i}
@@ -157,15 +202,17 @@ export function ChatMode({
                       </>
                     )}
                     {!isUser && m.content && !streamingThis && (
-                      <div className="mt-2 flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() => insertIntoDoc(m.content)}
-                          className="text-[11px] text-blue-600 hover:text-blue-800"
-                        >
-                          Insert into document
-                        </button>
-                      </div>
+                      <AssistantMessageActions
+                        content={m.content}
+                        writing={m.writing}
+                        onInsert={() => insertIntoDoc(m.content)}
+                        onRegenerate={
+                          m.writing
+                            ? () => void flow.regenerate(m.writing!.requestId)
+                            : undefined
+                        }
+                        onToast={onToast}
+                      />
                     )}
                   </div>
                 </div>
@@ -213,7 +260,7 @@ export function ChatMode({
                   <button
                     type="button"
                     onClick={() => seedAction(a.id)}
-                    disabled={isStreaming}
+                    disabled={isStreaming || flowActive}
                     aria-label={`${a.label}: ${a.description}`}
                     aria-pressed={isActive}
                     className={[
@@ -289,6 +336,10 @@ export function ChatMode({
           </p>
         )}
 
+        {/* Clarification workflow — always directly above the text input,
+            never rendered as a chat bubble or document text. */}
+        <ClarificationPanel flow={flow} />
+
         <div className="flex items-end gap-2">
           <input
             ref={fileInputRef}
@@ -301,44 +352,91 @@ export function ChatMode({
               if (picked?.length) void addFiles(picked);
             }}
           />
-          <button
-            type="button"
-            onClick={openFilePicker}
-            disabled={isStreaming || parsingFiles}
-            title="Attach .docx, .txt, or .md for context"
-            aria-label="Attach file for context"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
+          {/* Input box — the writing mode selector lives inside it, bottom left */}
+          <div
+            className={[
+              "flex min-w-0 flex-1 flex-col rounded-lg border bg-white",
+              flowActive
+                ? "border-neutral-200 bg-neutral-50"
+                : "border-neutral-300 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-300",
+            ].join(" ")}
           >
-            {parsingFiles ? (
-              <SpinnerIcon />
-            ) : (
-              <PlusIcon />
-            )}
-          </button>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              if (activeAction) setActiveAction(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send(selectedText);
+            <textarea
+              ref={textareaRef}
+              value={input}
+              disabled={flowActive}
+              onChange={(e) => {
+                setInput(e.target.value);
+                if (activeAction) setActiveAction(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send(selectedText);
+                }
+              }}
+              rows={isFull ? 3 : 2}
+              placeholder={
+                flowActive
+                  ? "Answer the question above to continue…"
+                  : inputPlaceholder
               }
-            }}
-            rows={isFull ? 3 : 2}
-            placeholder={inputPlaceholder}
-            aria-describedby={inputHint ? "chat-input-hint" : undefined}
-            className="flex-1 resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300"
-          />
+              aria-describedby={inputHint ? "chat-input-hint" : undefined}
+              className="w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none"
+            />
+            <div className="flex flex-wrap items-center gap-1.5 px-1.5 pb-1.5">
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={isStreaming || parsingFiles}
+                title="Attach .docx, .txt, or .md for context"
+                aria-label="Attach file for context"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 hover:border-neutral-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
+              >
+                {parsingFiles ? <SpinnerIcon /> : <PaperclipIcon />}
+              </button>
+              <WritingModeSelector
+                mode={writingMode}
+                onChange={setWritingMode}
+                disabled={isStreaming || flowGenerating}
+              />
+              <FeatureHint
+                badge={showFeatureBadges}
+                title="Naturalness — new"
+                description="Choose how hard Wright works to sound less like AI: it trims stacked metaphors, explained emotions, and tidy thesis endings. Set Balanced, More natural, Raw, or keep your current style."
+              >
+                <NaturalnessSelector
+                  level={naturalness}
+                  onChange={(level) => {
+                    dismissFeatureBadges();
+                    setNaturalness(level);
+                  }}
+                  disabled={isStreaming || flowGenerating}
+                />
+              </FeatureHint>
+              <FeatureHint
+                badge={showFeatureBadges}
+                title="Ask questions — new"
+                description="On: Wright pauses to ask a focused question when missing context would change the writing, and saves your answer as story context. Off: it makes a reasonable choice, generates now, and never saves invented facts as canon."
+              >
+                <AskQuestionsToggle
+                  enabled={askQuestions}
+                  onChange={(enabled) => {
+                    dismissFeatureBadges();
+                    setAskQuestions(enabled);
+                  }}
+                  disabled={isStreaming || flowGenerating}
+                />
+              </FeatureHint>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => void send(selectedText)}
             disabled={
               isStreaming ||
               parsingFiles ||
+              flowActive ||
               (!input.trim() && !selectionContext && fileAttachments.length === 0)
             }
             className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
@@ -351,6 +449,137 @@ export function ChatMode({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Wraps a composer control with a rich hover/focus tooltip describing a new
+ * feature, plus an optional pulsing "NEW" dot to draw first-time attention.
+ * Follows the existing quick-action tooltip pattern (CSS group-hover), so it
+ * needs no portal or third-party tooltip library.
+ */
+function FeatureHint({
+  title,
+  description,
+  badge,
+  children,
+}: {
+  title: string;
+  description: string;
+  badge: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="group/feat relative">
+      {children}
+      {badge && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-1 -top-1 z-10 flex h-2 w-2"
+        >
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-60" />
+          <span className="relative inline-flex h-2 w-2 rounded-full bg-blue-600" />
+        </span>
+      )}
+      <div
+        role="tooltip"
+        className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 w-max max-w-[min(260px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-[11px] leading-snug text-neutral-600 opacity-0 shadow-md transition-opacity group-hover/feat:opacity-100 group-focus-within/feat:opacity-100"
+      >
+        <span className="mb-0.5 flex items-center gap-1.5">
+          <span className="rounded bg-blue-50 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-blue-600">
+            New
+          </span>
+          <span className="font-medium text-neutral-800">{title}</span>
+        </span>
+        {description}
+      </div>
+    </div>
+  );
+}
+
+function AssistantMessageActions({
+  content,
+  writing,
+  onInsert,
+  onRegenerate,
+  onToast,
+}: {
+  content: string;
+  writing?: GenerationResultMeta;
+  onInsert: () => void;
+  onRegenerate?: () => void;
+  onToast: (msg: string, kind?: "success" | "error" | "info") => void;
+}) {
+  const [showDetails, setShowDetails] = useState(false);
+
+  return (
+    <div className="mt-2">
+      <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+        {writing && (
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(content).then(
+                () => onToast("Copied.", "success"),
+                () => onToast("Couldn't copy.", "error")
+              );
+            }}
+            className="text-[11px] text-blue-600 hover:text-blue-800"
+          >
+            Copy
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onInsert}
+          className="text-[11px] text-blue-600 hover:text-blue-800"
+        >
+          Insert into document
+        </button>
+        {onRegenerate && (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            className="text-[11px] text-blue-600 hover:text-blue-800"
+          >
+            Regenerate
+          </button>
+        )}
+        {writing && (
+          <button
+            type="button"
+            onClick={() => setShowDetails((s) => !s)}
+            aria-expanded={showDetails}
+            className="text-[11px] text-neutral-400 hover:text-neutral-600"
+          >
+            {showDetails ? "Hide details" : "Context used"}
+          </button>
+        )}
+      </div>
+      {writing && showDetails && (
+        <div className="mt-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-[11px] leading-snug text-neutral-600">
+          <div>
+            Written in{" "}
+            <span className="font-medium">
+              {writing.mode.replace(/_/g, " ")}
+            </span>{" "}
+            mode using {writing.contextCount} stored context item
+            {writing.contextCount === 1 ? "" : "s"} and {writing.answerCount}{" "}
+            of your answers.
+          </div>
+          {writing.assumptions.length > 0 && (
+            <ul className="mt-1 list-disc pl-4">
+              {writing.assumptions.map((a) => (
+                <li key={a.id}>
+                  {a.importance === "major" ? "Major assumption: " : "Assumed: "}
+                  {a.description}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -382,11 +611,11 @@ function UserMessageBubble({
   );
 }
 
-function PlusIcon() {
+function PaperclipIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="15"
+      height="15"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -395,8 +624,7 @@ function PlusIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </svg>
   );
 }

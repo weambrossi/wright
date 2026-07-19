@@ -12,6 +12,7 @@ import { PageCanvas } from "@/components/editor/PageCanvas";
 import { FindReplace } from "@/components/editor/FindReplace";
 import { AISidebar } from "@/components/ai/AISidebar";
 import { AIChatView } from "@/components/ai/AIChatView";
+import { StoryContextManager } from "@/components/writing/StoryContextManager";
 import { ToastHost, useToasts } from "@/components/ui/Toast";
 import { wrightDocumentToEditorState } from "@/lib/document/wrightToEditor";
 
@@ -31,6 +32,7 @@ export default function EditorPage() {
   );
   const [aiOpenDesktop, setAiOpenDesktop] = useState(true);
   const [aiOpenMobile, setAiOpenMobile] = useState(false);
+  const [storyContextOpen, setStoryContextOpen] = useState(false);
   const [activeRibbonTab, setActiveRibbonTab] = useState<TabId>("home");
 
   const isAIView = activeRibbonTab === "ai";
@@ -82,6 +84,7 @@ export default function EditorPage() {
   } = useWrightEditor({ initialContent, initialTitle, documentId });
   const aiChatSession = useAIChatSession({
     editor,
+    documentId,
     onToast: (text, kind) => push({ text, kind }),
   });
 
@@ -273,6 +276,7 @@ export default function EditorPage() {
               selectedText={selectedText}
               onToast={(t, k) => push({ text: t, kind: k })}
               session={aiChatSession}
+              onOpenStoryContext={() => setStoryContextOpen(true)}
             />
           </div>
         </main>
@@ -296,6 +300,7 @@ export default function EditorPage() {
               onClose={() => setAiOpenDesktop(false)}
               onToast={(t, k) => push({ text: t, kind: k })}
               session={aiChatSession}
+              onOpenStoryContext={() => setStoryContextOpen(true)}
             />
           </div>
           {!aiOpenDesktop && (
@@ -354,6 +359,14 @@ export default function EditorPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {storyContextOpen && (
+        <StoryContextManager
+          documentId={documentId}
+          onClose={() => setStoryContextOpen(false)}
+          onToast={(t, k) => push({ text: t, kind: k })}
+        />
       )}
 
       <ToastHost toasts={toasts} onDismiss={dismiss} />

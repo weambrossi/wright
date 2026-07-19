@@ -113,6 +113,63 @@ create index if not exists documents_is_starred_updated on documents (is_starred
 
 Run this even if you already have the `documents` table — `add column if not exists` is safe on existing data.
 
+## 2c. Story context migration (run after step 2)
+
+The context-grounded AI writing workflow stores the author's story canon and
+in-flight clarification flows in two tables. In the SQL Editor, run:
+
+```sql
+-- Persistent story context (the author's canon), scoped per document/book.
+create table if not exists story_context (
+  id                 uuid primary key default gen_random_uuid(),
+  document_id        uuid not null references documents(id) on delete cascade,
+  category           text not null,
+  scope              text not null default 'story',
+  content            text not null,
+  character_names    jsonb not null default '[]'::jsonb,
+  source             text not null default 'author_answer',
+  source_question    text null,
+  source_request_id  text null,
+  status             text not null default 'active',
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+
+create index if not exists story_context_document_category
+  on story_context (document_id, status, category);
+create index if not exists story_context_request
+  on story_context (document_id, source_request_id);
+
+-- Pending writing requests: preserves the clarification flow (questions,
+-- answers, selection, conflicts) so it survives reloads and failed generations.
+create table if not exists writing_requests (
+  id                        uuid primary key default gen_random_uuid(),
+  document_id               uuid not null references documents(id) on delete cascade,
+  original_prompt           text not null,
+  destination               text not null,
+  document_action           text null,
+  selected_text             text null,
+  selection_start           integer null,
+  selection_end             integer null,
+  document_version          text null,
+  writing_control_mode      text not null,
+  questions                 jsonb not null default '[]'::jsonb,
+  answers                   jsonb not null default '{}'::jsonb,
+  current_question_index    integer not null default 0,
+  status                    text not null default 'evaluating',
+  retrieved_context_ids     jsonb not null default '[]'::jsonb,
+  assumptions               jsonb not null default '[]'::jsonb,
+  conflicts                 jsonb not null default '[]'::jsonb,
+  saved_context_by_question jsonb not null default '{}'::jsonb,
+  generation_meta           jsonb null,
+  created_at                timestamptz not null default now(),
+  updated_at                timestamptz not null default now()
+);
+
+create index if not exists writing_requests_document_status
+  on writing_requests (document_id, status, updated_at desc);
+```
+
 ## 3. Create the private source-file bucket
 
 The app will try to create this bucket automatically with the service-role key.
