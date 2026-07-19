@@ -318,43 +318,59 @@ export function ChatMode({
               if (picked?.length) void addFiles(picked);
             }}
           />
-          <button
-            type="button"
-            onClick={openFilePicker}
-            disabled={isStreaming || parsingFiles}
-            title="Attach .docx, .txt, or .md for context"
-            aria-label="Attach file for context"
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-neutral-300 bg-white text-neutral-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
-          >
-            {parsingFiles ? (
-              <SpinnerIcon />
-            ) : (
-              <PlusIcon />
-            )}
-          </button>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            disabled={flowActive}
-            onChange={(e) => {
-              setInput(e.target.value);
-              if (activeAction) setActiveAction(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send(selectedText);
-              }
-            }}
-            rows={isFull ? 3 : 2}
-            placeholder={
+          {/* Input box — the writing mode selector lives inside it, bottom left */}
+          <div
+            className={[
+              "flex min-w-0 flex-1 flex-col rounded-lg border bg-white",
               flowActive
-                ? "Answer the question above to continue…"
-                : inputPlaceholder
-            }
-            aria-describedby={inputHint ? "chat-input-hint" : undefined}
-            className="flex-1 resize-none rounded-lg border border-neutral-300 bg-white px-3 py-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:bg-neutral-50"
-          />
+                ? "border-neutral-200 bg-neutral-50"
+                : "border-neutral-300 focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-300",
+            ].join(" ")}
+          >
+            <textarea
+              ref={textareaRef}
+              value={input}
+              disabled={flowActive}
+              onChange={(e) => {
+                setInput(e.target.value);
+                if (activeAction) setActiveAction(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send(selectedText);
+                }
+              }}
+              rows={isFull ? 3 : 2}
+              placeholder={
+                flowActive
+                  ? "Answer the question above to continue…"
+                  : inputPlaceholder
+              }
+              aria-describedby={inputHint ? "chat-input-hint" : undefined}
+              className="w-full resize-none rounded-t-lg bg-transparent px-3 pb-1 pt-2 text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none"
+            />
+            <div className="flex items-center gap-2 px-1.5 pb-1.5">
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={isStreaming || parsingFiles}
+                title="Attach .docx, .txt, or .md for context"
+                aria-label="Attach file for context"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-neutral-200 bg-neutral-50 text-neutral-600 hover:border-neutral-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
+              >
+                {parsingFiles ? <SpinnerIcon /> : <PaperclipIcon />}
+              </button>
+              <WritingModeSelector
+                mode={writingMode}
+                onChange={setWritingMode}
+                disabled={isStreaming || flowGenerating}
+              />
+              <span className="hidden min-w-0 truncate text-[10.5px] text-neutral-400 sm:inline">
+                Controls how much Wright asks before writing story details.
+              </span>
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => void send(selectedText)}
@@ -372,18 +388,6 @@ export function ChatMode({
               <polygon points="22 2 15 22 11 13 2 9 22 2" />
             </svg>
           </button>
-        </div>
-
-        {/* Writing behavior selector — compact, always visible with the input */}
-        <div className="mt-1.5 flex items-center gap-2">
-          <WritingModeSelector
-            mode={writingMode}
-            onChange={setWritingMode}
-            disabled={isStreaming || flowGenerating}
-          />
-          <span className="hidden text-[10.5px] text-neutral-400 sm:inline">
-            Controls how much Wright asks before writing story details.
-          </span>
         </div>
       </div>
     </div>
@@ -503,11 +507,11 @@ function UserMessageBubble({
   );
 }
 
-function PlusIcon() {
+function PaperclipIcon() {
   return (
     <svg
-      width="18"
-      height="18"
+      width="15"
+      height="15"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -516,8 +520,7 @@ function PlusIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <line x1="12" y1="5" x2="12" y2="19" />
-      <line x1="5" y1="12" x2="19" y2="12" />
+      <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
     </svg>
   );
 }
